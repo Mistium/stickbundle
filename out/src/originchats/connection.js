@@ -11,7 +11,9 @@ import {
   setSession,
 } from "./storage.js";
 
-const CLIENT_NAME = "velora";
+// Shown to other people as this connection's client; matches the client's
+// name in clients.originchats.com/openable.json.
+const CLIENT_NAME = "stickbundle";
 const REQUEST_TIMEOUT = 15000;
 
 function deviceKind() {
@@ -267,6 +269,11 @@ class OCConnection {
   // Rotur validator is spent on it.
   keyMatchesServer() {
     const key = String(this.handshake.validator_key || "");
+    // Like the official client, only keys bound to an http(s) URL are
+    // checked; the DM server's key names its wss:// address.
+    if (!/^originChats-https?:\/\//i.test(key)) {
+      return true;
+    }
     const m = /^originChats-(.+)-[A-Za-z0-9]{32}$/.exec(key);
     if (!m) {
       return false;
@@ -334,7 +341,9 @@ class OCConnection {
       this.signIn();
       return;
     }
-    if (attempt && attempt.kind === "local" && !attempt.save) {
+    // Only a credential failure (no access-control reason) means the saved
+    // login is wrong; a password or invite prompt keeps it.
+    if (attempt && attempt.kind === "local" && !attempt.save && !frame.reason) {
       setLocalLogin(this.url, null);
     }
     const reason = frame.reason || "";
@@ -374,7 +383,13 @@ class OCConnection {
         this.rawSend({ ...attempt.frame, client: CLIENT_NAME, device: deviceKind(), ...this.extraAuth });
       };
       const prev = this.onState;
+      let settled = false;
       const done = (ok, err) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         this.onState = prev;
         if (ok) {
           resolve();
@@ -382,11 +397,12 @@ class OCConnection {
           reject(new Error(err || "Sign-in failed"));
         }
       };
+      const timer = setTimeout(() => done(false, "The server didn't answer in time."), 20000);
       this.onState = (c) => {
         prev(c);
         if (c.state === "ready") {
           done(true);
-        } else if (c.state === "needs_login" || c.state === "error") {
+        } else if (c.state === "needs_login" || c.state === "error" || c.state === "closed") {
           done(false, c.error);
         }
       };

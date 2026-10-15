@@ -63,16 +63,7 @@ async function sign(build) {
   }
   // The SDK's privateKey() imports through WebCrypto too, so read the key
   // record directly.
-  const res = await fetch("https://api.rotur.dev/v2/me/signing-key", {
-    headers: { Authorization: `Bearer ${rotur.token}` },
-  });
-  if (!res.ok) {
-    throw Object.assign(new Error("Couldn't load your Rotur signing key"), { status: res.status });
-  }
-  const record = await res.json();
-  if (record.algorithm !== "Ed25519") {
-    throw new Error(`Unsupported signing algorithm: ${record.algorithm}`);
-  }
+  const record = await fallbackKey(rotur);
   const signature = await ed.signAsync(
     new Uint8Array(signingBytes(build(record.user_id))),
     b64urlToBytes(record.private_key_jwk.d),
@@ -98,6 +89,32 @@ function setBlocked(v) {
 const refused = (e) =>
   !!e && (e.status === 401 || e.status === 403 || e.name === "RoturPermissionError" || /scope|permission/i.test(String(e.message || "")));
 
+let fallback = null;
+function fallbackKey(rotur) {
+  if (!fallback || fallback.token !== rotur.token) {
+    const record = fetch("https://api.rotur.dev/v2/me/signing-key", {
+      headers: { Authorization: `Bearer ${rotur.token}` },
+    }).then(async (res) => {
+      if (!res.ok) {
+        throw Object.assign(new Error("Couldn't load your Rotur signing key"), { status: res.status });
+      }
+      const r = await res.json();
+      if (r.algorithm !== "Ed25519") {
+        throw new Error(`Unsupported signing algorithm: ${r.algorithm}`);
+      }
+      return r;
+    });
+    record.catch(() => {
+      if (fallback && fallback.record === record) fallback = null;
+    });
+    fallback = { token: rotur.token, record };
+  }
+  return fallback.record;
+}
+
+const timeout = (p, ms) =>
+  Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error("Signing timed out")), ms))]);
+
 // Proof fields for a new message or an edit, or {} when this connection
 // shouldn't (or can't) sign. A failed signature sends the message unsigned.
 async function signMessage(conn, { content, attachments, after = 0 }) {
@@ -106,8 +123,11 @@ async function signMessage(conn, { content, attachments, after = 0 }) {
   }
   const timestamp = Math.max(conn.serverNow(), after + 0.001);
   try {
-    const proof = await sign((authorId) =>
-      messageContent(authorId, content || "", attachments || [], timestamp, conn.handshake.signing_url),
+    const proof = await timeout(
+      sign((authorId) =>
+        messageContent(authorId, content || "", attachments || [], timestamp, conn.handshake.signing_url),
+      ),
+      10000,
     );
     setBlocked(false);
     return { ...proof, timestamp };
@@ -149,13 +169,14 @@ async function verifyProof(proof, content) {
   }
 }
 
-// What the author signed: after a moderator edit the server keeps it under
-// `original`.
-const authored = (m) => m.original || m;
+// Only the message as shown is verified. A moderator's edit of someone
+// else's message removes the signature and sets `edited_by` (the docs say to
+// show it unsigned); a signed `original` next to different content proves
+// nothing about what's displayed.
+const authored = (m) => m;
 
 function isSigned(m) {
-  const a = authored(m);
-  return !!(a.key_id && a.signature && a.author_id);
+  return !!(m.key_id && m.signature && m.author_id && !m.edited_by);
 }
 
 const results = new Map();
@@ -164,7 +185,7 @@ const settled = new Map();
 // "verified", "invalid" or "unavailable" (the check couldn't finish).
 function verifyMessage(m, signingUrl) {
   const a = authored(m);
-  const key = `${m.id}:${a.signature}`;
+  const key = cacheKey(m);
   if (results.has(key)) {
     return results.get(key);
   }
@@ -188,9 +209,14 @@ function verifyMessage(m, signingUrl) {
 
 // The finished result for this exact signature, if there is one yet. A check
 // that couldn't finish is tried again after a minute.
+// Results are cached per signed payload, so an edit that keeps the signature
+// but changes the content is checked again.
+function cacheKey(m) {
+  return JSON.stringify([m.id, m.author_id, m.key_id, m.signature, m.signed_at, m.content || "", m.attachments || []]);
+}
+
 function cachedVerification(m) {
-  const a = authored(m);
-  const key = `${m.id}:${a.signature}`;
+  const key = cacheKey(m);
   const done = settled.get(key);
   if (done && done.r === "unavailable" && Date.now() - done.at > 60000) {
     settled.delete(key);
