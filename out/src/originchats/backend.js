@@ -1539,6 +1539,28 @@ route("POST", /^\/chat\/servers$/, (m, body) => {
 
 route("GET", /^\/chat\/unfurl$/, () => ({ embed: null }));
 
+// GIF search: gifs.originchats.com, like the official client. An empty search
+// shows the most viewed ones.
+const GIFS = "https://gifs.originchats.com";
+const GIF_PAGE = 40;
+route("GET", /^\/chat\/gifs$/, async (m, body, url) => {
+  const q = String(url.searchParams.get("q") || "").trim();
+  const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+  const params = new URLSearchParams({ limit: String(GIF_PAGE), offset: String((page - 1) * GIF_PAGE) });
+  if (q) params.set("q", q);
+  else params.set("sort", "views");
+  const res = await realFetch(`${GIFS}/api/gifs?${params}`).catch(() => null);
+  const data = res && res.ok ? await res.json().catch(() => null) : null;
+  if (!data || !Array.isArray(data.gifs)) throw httpError(502, "Couldn't load GIFs right now.");
+  const gifs = data.gifs.map((g) => {
+    const src = new URL(g.url || `/api/gif/${g.id}`, GIFS).href;
+    // Tiles use a small animated preview; the full GIF is what gets sent.
+    const preview = `https://wsrv.nl/?url=${encodeURIComponent(src)}&w=240&n=-1&output=webp`;
+    return { id: g.id, title: g.title || "GIF", url: src, preview, width: g.width, height: g.height };
+  });
+  return { gifs, has_more: gifs.length === GIF_PAGE };
+});
+
 // Velora features with no OriginChats equivalent answer with empty data so
 // the UI around them stays quiet.
 const EMPTY = [
