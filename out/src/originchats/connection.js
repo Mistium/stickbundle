@@ -274,12 +274,15 @@ class OCConnection {
     if (!/^originChats-https?:\/\//i.test(key)) {
       return true;
     }
-    const m = /^originChats-(.+)-[A-Za-z0-9]{32}$/.exec(key);
-    if (!m) {
+    // `originChats-<url>-<nonce>`: the nonce is always 32 characters and may
+    // contain "-" and "_", so split at that fixed boundary.
+    const value = key.slice("originChats-".length);
+    const sep = value.length - 33;
+    if (sep <= 0 || value[sep] !== "-" || !/^[A-Za-z0-9_-]{32}$/.test(value.slice(sep + 1))) {
       return false;
     }
     try {
-      return new URL(m[1]).host === new URL(this.url).host;
+      return new URL(value.slice(0, sep)).host === new URL(this.url).host;
     } catch {
       return false;
     }
@@ -299,15 +302,20 @@ class OCConnection {
       this.rawSend({ cmd: "auth", session: session.token, ...base });
       return;
     }
+    // Like the official client, sign-in methods follow auth_mode (default
+    // "rotur"); some servers don't list `auth`/`login` as capabilities.
+    const authMode = hs.auth_mode || "rotur";
+    const canRotur = authMode !== "cracked-only";
+    const canLocal = authMode === "cracked" || authMode === "cracked-only" || caps.includes("login");
     const local = getLocalLogin(this.url);
-    if (local && caps.includes("login")) {
+    if (local && canLocal) {
       this.authAttempt = { kind: "local" };
       this.rawSend({ cmd: "login", username: local.username, password: local.password, ...base });
       return;
     }
-    if (account && hs.auth_mode !== "cracked-only" && caps.includes("auth")) {
+    if (account && canRotur) {
       if (!this.keyMatchesServer()) {
-        this.setState("error", "This server's identity doesn't match its address, so Velora won't sign in to it.");
+        this.setState("error", "This server's identity doesn't match its address, so you won't be signed in to it.");
         return;
       }
       this.authAttempt = { kind: "rotur" };
