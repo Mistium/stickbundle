@@ -104,6 +104,9 @@ function toVAttachment(a) {
     width: a.width,
     height: a.height,
     oc_id: a.id,
+    // The record as the server returned it: sent back as-is, because a
+    // signature covers exactly this object.
+    oc_raw: a,
   };
 }
 

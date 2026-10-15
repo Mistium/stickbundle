@@ -30,6 +30,10 @@ function socketUrl(url) {
 
 let listenerSeq = 0;
 
+// Wall-clock seconds from a monotonic source, so changes to the device clock
+// mid-session don't move it.
+const localNow = () => (performance.timeOrigin + performance.now()) / 1000;
+
 class OCConnection {
   constructor(url, { onEvent, onState }) {
     this.url = url;
@@ -47,6 +51,34 @@ class OCConnection {
     this.closedByUser = false;
     this.authAttempt = null;
     this.extraAuth = {};
+    // Server clock: offset from this device's clock, in seconds.
+    this.clockOffset = 0;
+  }
+
+  // The server's time now, in Unix seconds, for signed timestamps. The
+  // device clock can be wrong; the offset comes from the handshake and is
+  // refined with a timed ping after sign-in.
+  serverNow() {
+    return localNow() + this.clockOffset;
+  }
+
+  syncClock() {
+    const t0 = localNow();
+    this.request("ping", { sent_at: t0 }, { timeout: 8000 })
+      .then((f) => {
+        const t3 = localNow();
+        const t1 = Number(f.server_received_at);
+        const t2 = Number(f.server_sent_at);
+        if (!isFinite(t1) || !isFinite(t2) || t3 < t0 || t2 < t1) {
+          return;
+        }
+        const rtt = t3 - t0 - (t2 - t1);
+        if (rtt < 0 || rtt > 5) {
+          return;
+        }
+        this.clockOffset = (t1 - t0 + (t2 - t3)) / 2;
+      })
+      .catch(() => {});
   }
 
   setState(state, error = null) {
@@ -192,6 +224,9 @@ class OCConnection {
     switch (frame.cmd) {
       case "handshake":
         this.handshake = frame.val || {};
+        if (isFinite(Number(this.handshake.server_time))) {
+          this.clockOffset = Number(this.handshake.server_time) - localNow();
+        }
         this.onEvent(this, frame, false);
         this.signIn();
         return;
@@ -213,6 +248,7 @@ class OCConnection {
         }
         this.authAttempt = null;
         this.setState("ready");
+        this.syncClock();
         this.onEvent(this, frame);
         return;
       case "auth_error":

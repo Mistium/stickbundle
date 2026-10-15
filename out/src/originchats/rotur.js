@@ -12,7 +12,9 @@ import { getProfile, getRoturToken, setProfile, setRoturToken } from "./storage.
 
 // Replaced at build time by `--define`; empty means no app is registered.
 const APP_ID = typeof __ROTUR_APP_ID__ !== "undefined" ? __ROTUR_APP_ID__ : "";
-const PERMISSIONS = ["validators:generate"];
+// validators:generate signs you in to servers; signing:private lets the SDK
+// sign your messages with your Rotur identity key.
+const PERMISSIONS = ["validators:generate", "signing:private"];
 
 let client = null;
 

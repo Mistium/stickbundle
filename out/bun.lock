@@ -5,11 +5,14 @@
     "": {
       "name": "originchats-velora-client",
       "dependencies": {
+        "@noble/ed25519": "2",
         "rotur-sdk": "^3.1.0",
       },
     },
   },
   "packages": {
+    "@noble/ed25519": ["@noble/ed25519@2.3.0", "", {}, "sha512-M7dvXL2B92/M7dw9+gzuydL8qn/jiqNHaoR3Q+cb1q1GHV7uwE17WCyFMG+Y+TZb5izcaXk5TdJRrDUxHXL78A=="],
+
     "rotur-sdk": ["rotur-sdk@3.1.0", "", { "peerDependencies": { "preact": "^10.0.0", "ts-morph": "^28.0.0" }, "optionalPeers": ["preact", "ts-morph"] }, "sha512-wTAPQbBSms+yUuvbKua7kUx0z+03S4Av+mTJ35JO6EPKziwU8d+wbEifZ+av3Frs0ucAp8VNsiXo8xfJBQvhIg=="],
   }
 }

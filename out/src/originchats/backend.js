@@ -21,6 +21,7 @@ import {
   toVRole,
 } from "./convert.js";
 import { cidFor, eidFor, msgNum, readMarker, sidFor, uuidOf } from "./ids.js";
+import { cachedVerification, isSigned, signMessage, verifyMessage } from "./signing.js";
 import { roturAccount, roturAvatar, roturValidator } from "./rotur.js";
 import * as store from "./storage.js";
 
@@ -148,10 +149,27 @@ function emojiOf(st, id) {
 function vMessage(st, channel, raw) {
   const m = toVMessage(ctxOf(st), lookupEmoji, channel, raw);
   messageIndex.set(m.id, { sid: st.sid, channel, raw });
+  if (isSigned(raw) && !raw.webhook) {
+    const known = cachedVerification(raw);
+    m.signed = known || "pending";
+    if (!known) checkSignature(st, channel, raw, m.id);
+  }
   if (m.reply) {
     messageIndex.set(m.reply.id, messageIndex.get(m.reply.id) || { sid: st.sid, channel, raw: null });
   }
   return m;
+}
+
+// Verifies a signed message, then redraws it with the result.
+function checkSignature(st, channel, raw, id) {
+  const url = st.conn.handshake && st.conn.handshake.signing_url;
+  if (!url) return;
+  verifyMessage(raw, url).then(() => {
+    const entry = messageIndex.get(id);
+    if (entry && entry.raw && entry.raw.id === raw.id) {
+      hooks.emit({ type: "chat_message_update", message: vMessage(st, channel, entry.raw) });
+    }
+  });
 }
 
 function myRoles(st) {
@@ -1180,7 +1198,7 @@ route(["PUT", "DELETE"], /^\/chat\/messages\/(\d+)\/pin$/, async (m, body, url, 
 });
 
 route(["PATCH", "DELETE"], /^\/chat\/messages\/(\d+)$/, async (m, body, url, method) => {
-  const { st, channel, uuid } = messageOf(m[1]);
+  const { st, channel, uuid, entry } = messageOf(m[1]);
   const c = await readyConn(st);
   if (method === "DELETE") {
     await c.request("message_delete", { channel, id: uuid }).catch((e) => {
@@ -1188,7 +1206,21 @@ route(["PATCH", "DELETE"], /^\/chat\/messages\/(\d+)$/, async (m, body, url, met
     });
   } else {
     const content = contentToOC(ctxOf(st), (eid) => emojiIndex.get(eid), body.message);
-    await c.request("message_edit", { channel, id: uuid, content }).catch((e) => {
+    const fields = { channel, id: uuid, content };
+    const raw = entry.raw;
+    if (raw && c.me && raw.user === c.me.username) {
+      // An edit of your own message is signed over the whole new version.
+      const current = raw.original || raw;
+      Object.assign(
+        fields,
+        await signMessage(c, {
+          content,
+          attachments: current.attachments || [],
+          after: Number(current.signed_at) || 0,
+        }),
+      );
+    }
+    await c.request("message_edit", fields).catch((e) => {
       throw ocError(e);
     });
   }
@@ -1512,15 +1544,16 @@ function sendFromVelora(msg) {
       let content = contentToOC(ctx, (eid) => emojiIndex.get(eid), msg.message);
       const attachments = [];
       for (const a of msg.attachments || []) {
-        if (a.oc_id && (!a.oc_sid || a.oc_sid === st.sid)) attachments.push({ id: a.oc_id });
+        // Uploads go back as their full record, which the signature covers.
+        if (a.oc_id && (!a.oc_sid || a.oc_sid === st.sid)) attachments.push(a.oc_raw || { id: a.oc_id });
         else if (a.url) content = `${content}${content ? "\n" : ""}${a.url}`;
       }
       const fields = { channel: name, content };
       if (attachments.length) fields.attachments = attachments;
       const replyUuid = msg.reply_to ? uuidOf(msg.reply_to) : null;
       if (replyUuid) fields.reply_to = replyUuid;
-      st.conn
-        .request("message_new", fields)
+      signMessage(st.conn, { content, attachments })
+        .then((proof) => st.conn.request("message_new", { ...fields, ...proof }))
         .then((f) => {
           hooks.emit({ type: "chat_ack", nonce: msg.nonce, message: vMessage(st, name, f.message) });
         })
