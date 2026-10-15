@@ -3,10 +3,9 @@
 //
 // Protocol reference: https://docs.originchats.com/protocol/model/
 
-import { roturValidator } from "./rotur.js";
+import { roturAccount, roturValidator } from "./rotur.js";
 import {
   getLocalLogin,
-  getRoturToken,
   getSession,
   setLocalLogin,
   setSession,
@@ -206,7 +205,7 @@ class OCConnection {
           setSession(this.url, {
             token: frame.session_token,
             username: frame.user && frame.user.username,
-            rotur: getRoturToken() || null,
+            rotur: roturAccount(),
           });
         }
         if (this.authAttempt && this.authAttempt.kind === "local" && this.authAttempt.save) {
@@ -247,11 +246,12 @@ class OCConnection {
     const hs = this.handshake;
     this.setState("authing");
     const base = { client: CLIENT_NAME, device: deviceKind(), ...this.extraAuth };
-    const token = getRoturToken();
+    const account = roturAccount();
     const session = getSession(this.url);
     const caps = hs.capabilities || [];
 
-    if (session && session.token && (session.rotur || null) === (token || null)) {
+    // A session only resumes for the Rotur account (or none) that made it.
+    if (session && session.token && (session.rotur || null) === (account || null)) {
       this.authAttempt = { kind: "session" };
       this.rawSend({ cmd: "auth", session: session.token, ...base });
       return;
@@ -262,20 +262,27 @@ class OCConnection {
       this.rawSend({ cmd: "login", username: local.username, password: local.password, ...base });
       return;
     }
-    if (token && hs.auth_mode !== "cracked-only" && caps.includes("auth")) {
+    if (account && hs.auth_mode !== "cracked-only" && caps.includes("auth")) {
       if (!this.keyMatchesServer()) {
         this.setState("error", "This server's identity doesn't match its address, so Velora won't sign in to it.");
         return;
       }
       this.authAttempt = { kind: "rotur" };
       try {
-        const validator = await roturValidator(token, hs.validator_key);
+        const validator = await roturValidator(hs.validator_key);
         if (this.handshake !== hs) {
           return;
         }
         this.rawSend({ cmd: "auth", validator, ...base });
       } catch (e) {
-        this.setState("error", e.status === 401 || e.status === 403 ? "Your Rotur key was rejected - sign in again." : "Couldn't reach Rotur to sign in.");
+        this.setState(
+          "error",
+          e.name === "RoturPermissionError"
+            ? "Rotur needs your permission to sign you in here - sign in with Rotur again."
+            : e.status === 401 || e.status === 403
+              ? "Your Rotur sign-in expired - sign in again."
+              : "Couldn't reach Rotur to sign in.",
+        );
       }
       return;
     }

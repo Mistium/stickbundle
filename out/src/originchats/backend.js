@@ -21,7 +21,7 @@ import {
   toVRole,
 } from "./convert.js";
 import { cidFor, eidFor, msgNum, readMarker, sidFor, uuidOf } from "./ids.js";
-import { roturAvatar, roturValidator } from "./rotur.js";
+import { roturAccount, roturAvatar, roturValidator } from "./rotur.js";
 import * as store from "./storage.js";
 
 const DISCOVERY_URL = "https://discovery.host.originchats.com/discovery.json";
@@ -752,10 +752,9 @@ async function uploadTo(st, file) {
   if (c.uploadToken) {
     form.append("local_upload_token", c.uploadToken);
   } else {
-    const token = store.getRoturToken();
-    if (!token) throw httpError(401, "Sign in with Rotur to upload here.");
+    if (!roturAccount()) throw httpError(401, "Sign in with Rotur to upload here.");
     form.append("validator_key", hs.validator_key);
-    form.append("validator", await roturValidator(token, hs.validator_key));
+    form.append("validator", await roturValidator(hs.validator_key));
   }
   const res = await realFetch(`${st.url}/attachments/upload`, { method: "POST", body: form });
   const data = await res.json().catch(() => ({}));
@@ -1625,7 +1624,7 @@ function serverInfo(sid) {
     canLogin: caps.includes("login"),
     canRegister: caps.includes("register"),
     canRotur: caps.includes("auth") && hs.auth_mode !== "cracked-only",
-    hasRotur: !!store.getRoturToken(),
+    hasRotur: !!roturAccount(),
     access: st.conn.accessNeeded || (hs.access_control ? { mode: hs.access_control.mode } : null),
   };
 }

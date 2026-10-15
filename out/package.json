@@ -1,0 +1,8 @@
+{
+  "name": "originchats-velora-client",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "rotur-sdk": "^3.1.0"
+  }
+}
