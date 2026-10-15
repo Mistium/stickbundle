@@ -22,7 +22,7 @@ import {
 } from "./convert.js";
 import { cidFor, eidFor, knownNum, msgNum, readMarker, sidFor, uuidOf } from "./ids.js";
 import { cachedVerification, checkSigningAccess, isSigned, signMessage, verifyMessage } from "./signing.js";
-import { roturAccount, roturAvatar, roturValidator } from "./rotur.js";
+import { roturAccount, roturActivities, roturAvatar, roturProfile, roturToVelora, roturValidator } from "./rotur.js";
 import * as store from "./storage.js";
 
 const DISCOVERY_URL = "https://discovery.host.originchats.com/discovery.json";
@@ -343,6 +343,7 @@ function vMember(st, u) {
     role: roles.includes("owner") ? "owner" : isAdmin ? "admin" : null,
     roles: roleIds,
     bot: !!u.bot,
+    cracked: !!u.cracked || String(u.username).startsWith("USR:") || undefined,
     presence: vPresence(u),
   };
 }
@@ -963,41 +964,67 @@ route("GET", /^\/account\/me$/, async () => {
   };
 });
 
+// A person's profile for Velora's cards: their Rotur profile (display name,
+// bio, pronouns, banner, badges, connections, accent colour, activities) for
+// Rotur accounts, or what the server knows about a server account.
+function serverAccount(name) {
+  for (const st of servers.values()) {
+    const u = st.users.get(ctxOf(st).ocname(name));
+    if (u) return { st, u };
+  }
+  return null;
+}
+
 route("GET", /^\/account\/lookup\/([^/]+)$/, async (m) => {
   const name = decodeURIComponent(m[1]);
-  for (const st of servers.values()) {
-    const ctx = ctxOf(st);
-    const u = st.users.get(ctx.ocname(name));
-    if (u) {
-      return {
-        id: u.username,
-        username: name,
-        pfp_url: avatarFor(st, u, u.username),
-        color: u.color || null,
-        rank: null,
-        bio: "",
-        badges: [],
-        banner_url: u.cracked ? null : `https://avatars.rotur.dev/.banners/${encodeURIComponent(u.username)}`,
-      };
+  const known = serverAccount(name);
+  if (known && (known.u.cracked || String(known.u.username).startsWith("USR:"))) {
+    const { st, u } = known;
+    return {
+      id: u.username,
+      username: name,
+      pfp_url: avatarFor(st, u, u.username),
+      color: u.color || null,
+      rank: null,
+      bio: "",
+      badges: [],
+      banner_url: null,
+    };
+  }
+  const roturName = known ? known.u.username : name;
+  const p = await roturProfile(roturName);
+  if (!p) {
+    if (known) {
+      return { id: known.u.username, username: name, pfp_url: avatarFor(known.st, known.u, known.u.username), color: known.u.color || null, badges: [] };
     }
+    throw httpError(404, "user_not_found");
   }
-  const me = currentMe();
-  if (me && me.username === name) {
-    return { id: me.id, username: name, pfp_url: me.pfp, color: null, rank: null, badges: [] };
-  }
-  if (/^USR:/.test(name)) throw httpError(404, "user_not_found");
-  return { id: name, username: name, pfp_url: roturAvatar(name), color: null, rank: null, badges: [] };
+  const v = roturToVelora(p);
+  // Keep the name the UI uses for them (your own Rotur name, or theirs).
+  return { ...v, username: name };
 });
 
 route("GET", /^\/chat\/users\/([^/]+)$/, async (m) => {
   const name = decodeURIComponent(m[1]);
   let presence = null;
   const mutual = [];
+  let rotur = true;
   for (const st of servers.values()) {
+    if (st.isDM) continue;
     const u = st.users.get(ctxOf(st).ocname(name));
     if (u) {
+      if (u.cracked || String(u.username).startsWith("USR:")) rotur = false;
       presence = presence || vPresence(u);
       mutual.push({ sid: st.sid, name: st.name, icon: st.icon, role: (u.roles || []).includes("owner") ? "owner" : null });
+    }
+  }
+  if (rotur) {
+    // Rotur's own status carries rich activities (Spotify and the like).
+    const p = await roturProfile(name);
+    const activities = p ? roturActivities(p.status) : [];
+    if (activities.length) {
+      presence = { ...(presence || { status: (p.status && p.status.presence) || "offline" }), activities };
+      hooks.emit({ type: "presence_update", username: name, presence });
     }
   }
   return { presence, mutual_servers: mutual };

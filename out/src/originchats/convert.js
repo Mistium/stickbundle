@@ -295,6 +295,8 @@ function toVMessage(ctx, emojiLookup, channel, m) {
       color: (u && u.color) || null,
       bot: !!(u && u.bot) || undefined,
       id: m.author_id,
+      // Server accounts have no Rotur profile or cosmetics.
+      cracked: !!(u && u.cracked) || String(m.user).startsWith("USR:") || undefined,
     };
     if (m.alias && m.alias.name) {
       author = {

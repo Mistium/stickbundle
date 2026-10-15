@@ -7,7 +7,7 @@
 // SDK's rotur.dev/auth flow, which hands back a token scoped to making
 // validators.
 
-import { Rotur, performAuth } from "rotur-sdk";
+import { Rotur, iconToSvg, performAuth } from "rotur-sdk";
 import { getProfile, getRoturToken, setProfile, setRoturToken } from "./storage.js";
 
 // Replaced at build time by `--define`; empty means no app is registered.
@@ -111,3 +111,100 @@ export {
   signInWithKey,
   signInWithRotur,
 };
+
+// ---------------------------------------------------------------- profiles
+
+const profileCache = new Map(); // lowercased username -> { at, promise }
+
+// A Rotur profile (GET /v2/users/<name>, public), cached for five minutes.
+// Resolves to null when there's no such account.
+function roturProfile(username) {
+  const key = String(username || "").toLowerCase();
+  const hit = profileCache.get(key);
+  if (hit && Date.now() - hit.at < 300000) {
+    return hit.promise;
+  }
+  const promise = fetch(`https://api.rotur.dev/v2/users/${encodeURIComponent(username)}?include_posts=0`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((p) => (p && p.username ? p : null))
+    .catch(() => {
+      profileCache.delete(key);
+      return null;
+    });
+  profileCache.set(key, { at: Date.now(), promise });
+  return promise;
+}
+
+// Rotur's Discord-style activities as Velora's activity cards.
+const ACTIVITY_TYPES = { 0: "playing", 1: "streaming", 2: "listening", 3: "watching", 4: "custom", 5: "competing" };
+
+function roturActivities(status) {
+  const list = (status && Array.isArray(status.activities) && status.activities) || [];
+  const now = Date.now();
+  return list.map((a) => {
+    const media = a.media || {};
+    const ts = a.timestamps || {};
+    const spotify = a.application_id === "spotify" || a.id === "spotify";
+    const start = Number(ts.start || media.start || a.start_time) || undefined;
+    const end = Number(ts.end || media.end) || undefined;
+    const assets = a.assets || {};
+    return {
+      type: ACTIVITY_TYPES[a.type] || (typeof a.type === "string" ? a.type : "playing"),
+      app: spotify ? "Spotify" : (a.application && a.application.name) || undefined,
+      name: spotify ? media.title || a.details || a.name : a.name || (a.application && a.application.name) || "",
+      details: spotify ? (media.artist ? `by ${media.artist}` : a.state) : a.details,
+      state: spotify ? (media.album ? `on ${media.album}` : undefined) : a.state,
+      image: assets.large_image || a.image || undefined,
+      url: a.url || (a.application && a.application.url) || undefined,
+      since: start,
+      duration: start && end ? end - start : undefined,
+      progress: start && end ? Math.max(0, now - start) : undefined,
+      progress_at: start && end ? now : undefined,
+      platform: a.platform,
+    };
+  });
+}
+
+// Rotur badges are drawn in Rotur's icon language; the SDK turns them into SVG.
+function badgeIcon(icon) {
+  try {
+    const svg = iconToSvg(String(icon || ""));
+    return svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : null;
+  } catch {
+    return null;
+  }
+}
+
+// The fields Velora's profile cards read, from a Rotur profile.
+function roturToVelora(p) {
+  const theme = p.theme || {};
+  return {
+    id: p.id,
+    username: p.username,
+    display_name: p.display_name && p.display_name !== p.username ? p.display_name : null,
+    pfp_url: p.pfp || roturAvatar(p.username),
+    banner_url: p.banner || null,
+    bio: p.bio || "",
+    pronouns: p.pronouns || "",
+    created_at: Number(p.created) || null,
+    private: !!p.private,
+    color: /^#[0-9a-f]{6}$/i.test(theme.accent || "") ? theme.accent : null,
+    rank: null,
+    followers: p.followers,
+    following: p.following,
+    subscription: p.subscription && p.subscription !== "Free" ? p.subscription : null,
+    badges: (Array.isArray(p.badges) ? p.badges : [])
+      .map((b) => ({ name: b.name || b.id, description: b.description, icon_url: badgeIcon(b.icon) }))
+      .filter((b) => b.icon_url),
+    connections: (Array.isArray(p.connections) ? p.connections : []).map((c) => ({
+      provider: c.provider,
+      name: c.username,
+      url: c.profile_url,
+    })),
+    activities: roturActivities(p.status),
+    presence: p.status && p.status.presence,
+    custom: (p.status && p.status.status) || null,
+  };
+}
+
+export { roturActivities, roturProfile, roturToVelora };
