@@ -209,7 +209,10 @@ function myPermissionList(st) {
 
 function myBits(st) {
   let bits = bitsFromPermissions(myPermissionList(st)) | P.SEND | P.VIEW;
-  if (st.conn.handshake && st.conn.handshake.attachments && st.conn.handshake.attachments.enabled) {
+  // The last handshake still counts while reconnecting, so the composer
+  // doesn't lose its attach button for a moment.
+  const hs = st.conn.handshake || st.lastHandshake;
+  if (hs && hs.attachments && hs.attachments.enabled) {
     bits |= P.ATTACH;
   }
   return bits;
@@ -251,6 +254,7 @@ function serverSummary(st) {
     oc_url: st.url,
     oc_state: st.conn.state,
     oc_error: st.conn.error,
+    oc_loaded: !!st.everLoaded,
   };
 }
 
@@ -341,11 +345,13 @@ function vPresence(u) {
 
 function vDetail(st) {
   let { channels, categories } = vChannels(st);
-  if (st.conn.state !== "ready") {
+  // Before a server's first sign-in there are no channels yet; a reconnect
+  // keeps showing the last ones.
+  if (st.conn.state !== "ready" && !st.everLoaded) {
     // Something to navigate to while the server signs in; the sign-in gate
     // covers it, then moves to a real channel.
     channels = [
-      { cid: cidFor(st.url, "\u0000gate"), name: "signing-in", type: "text", topic: "", category: "", position: 0, can_post: false, locked: true },
+      { cid: cidFor(st.url, "\u0000gate"), name: "connecting", type: "text", topic: "", category: "", position: 0, can_post: false, locked: true },
     ];
     categories = [];
   }
@@ -484,6 +490,7 @@ function onFrame(st, f, isResponse) {
   const chan = f.channel;
   switch (f.cmd) {
     case "handshake":
+      st.lastHandshake = f.val || null;
       if (f.val && f.val.server) {
         st.name = f.val.server.name || st.name;
         st.icon = f.val.server.icon || null;
@@ -725,6 +732,19 @@ function stBySid(sid) {
     throw httpError(404, "not_a_member");
   }
   return st;
+}
+
+// Like channelOf, but a channel of a server that hasn't signed in yet (a
+// reload straight into a channel) is waited for.
+async function channelOfAsync(cid) {
+  try {
+    return channelOf(cid);
+  } catch (e) {
+    const waiting = [...servers.values()].filter((st) => st.conn.state !== "ready" || !st.loaded);
+    if (!waiting.length) throw e;
+    await Promise.all(waiting.map((st) => waitReady(st)));
+    return channelOf(cid);
+  }
 }
 
 function channelOf(cid) {
@@ -975,7 +995,9 @@ route("GET", /^\/chat\/servers$/, () => ({ servers: listServers() }));
 route("GET", /^\/chat\/servers\/([^/]+)$/, async (m) => {
   const st = stBySid(m[1]);
   st.conn.state === "idle" && st.conn.connect();
-  await waitReady(st);
+  // Signed in and loading the rest: worth a short wait. Still connecting:
+  // answer now, so the server opens straight away; it refreshes once ready.
+  if (st.conn.state === "ready") await waitReady(st, 8000);
   return vDetail(st);
 });
 
@@ -1109,7 +1131,7 @@ route("POST", /^\/chat\/servers\/([^/]+)\/channels$/, async (m, body) => {
 });
 
 route(["PATCH", "DELETE"], /^\/chat\/channels\/(c[0-9a-f]{10})$/, async (m, body, url, method) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   const c = await readyConn(st);
   if (method === "DELETE") {
     await c.request("channel_delete", { name }).catch((e) => {
@@ -1145,7 +1167,7 @@ route("POST", /^\/chat\/servers\/([^/]+)\/leave$/, (m) => {
 });
 
 route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/messages$/, async (m, body, url) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   const c = await readyConn(st);
   const limit = Math.min(100, Number(url.searchParams.get("limit")) || 50);
   const before = url.searchParams.get("before");
@@ -1167,14 +1189,14 @@ route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/messages$/, async (m, body, ur
 });
 
 route("POST", /^\/chat\/channels\/(c[0-9a-f]{10})\/read$/, async (m) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   st.conn.send("unreads_ack", { channel: name });
   st.unreads[name] = { ...(st.unreads[name] || {}), unread_count: 0, ping_count: 0 };
   return { ok: true };
 });
 
 route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/pins$/, async (m) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   const c = await readyConn(st);
   const r = await c.request("messages_pinned", { channel: name }).catch((e) => {
     throw ocError(e);
@@ -1183,7 +1205,7 @@ route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/pins$/, async (m) => {
 });
 
 route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/search$/, async (m, body, url) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   await readyConn(st);
   const list = await searchChannel(st, name, parseQuery(url.searchParams.get("q"))).catch((e) => {
     throw ocError(e);

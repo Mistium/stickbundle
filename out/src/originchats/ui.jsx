@@ -143,6 +143,15 @@ function OCServerGate({ sid }) {
   if (!server || state === "ready") {
     return null;
   }
+  // A server that was already open and briefly lost its connection keeps
+  // its messages on screen, with a bar instead of the full sign-in screen.
+  if (server.oc_loaded && (state === "connecting" || state === "authing" || state === "idle")) {
+    return (
+      <div className="oc-reconnect-bar" role="status">
+        Reconnecting to {server.name}…
+      </div>
+    );
+  }
   const info = serverInfo(sid) || {};
   const waiting = state === "connecting" || state === "authing" || state === "idle";
   const accessReason = info.access && info.access.reason;
