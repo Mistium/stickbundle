@@ -168,7 +168,8 @@ function roturActivities(status) {
 // Rotur badges are drawn in Rotur's icon language; the SDK turns them into SVG.
 function badgeIcon(icon) {
   try {
-    const svg = iconToSvg(String(icon || ""));
+    // The official client's scale: icons drawn at 2x in a 40-unit box.
+    const svg = iconToSvg(String(icon || ""), { size: 2, viewSize: 20 });
     return svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : null;
   } catch {
     return null;
