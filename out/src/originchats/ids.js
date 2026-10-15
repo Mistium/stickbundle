@@ -52,12 +52,15 @@ function msgNum(uuid, timestamp) {
 
 const uuidOf = (num) => uuidByNum.get(String(num)) || null;
 
+// The id of a message we've already seen, without making a provisional one.
+const knownNum = (uuid) => numByUuid.get(uuid) || null;
+
 // The read marker as an id: anything saved after `lastViewed` sorts above it.
 function readMarker(lastViewed) {
   if (lastViewed == null) {
     return null;
   }
-  return String(BigInt(Math.floor(Number(lastViewed) * 1000)) * 1000n + 999n);
+  return String(BigInt(Math.round(Number(lastViewed) * 1000)) * 1000n + 999n);
 }
 
-export { cidFor, eidFor, msgNum, readMarker, ridFor, sidFor, uuidOf };
+export { cidFor, eidFor, knownNum, msgNum, readMarker, ridFor, sidFor, uuidOf };

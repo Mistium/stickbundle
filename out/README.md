@@ -55,10 +55,14 @@ The Velora store (`components/vc/VcEmGrid.jsx`) now sends through `sendFromVelor
 - Members and roles: member list with presence, role colours and hoisting, role editor, giving roles, kick and ban, custom status.
 - Server settings: name, roles, emoji.
 
+## Message signatures
+Messages and edits from a Rotur account are signed with the account's Rotur identity key through `rotur-sdk` (`signing:private`), using the `originchats.message.v1` payload and a clock synced to the server. Every signed message is verified in the browser, because the server doesn't check signatures. A shield next to the message shows the result: green for verified, red for a signature that doesn't match, grey when the key couldn't be fetched. Browsers without WebCrypto Ed25519 fall back to `@noble/ed25519`. The code is in `src/originchats/signing.js`.
+
 ## Not supported
 - Voice and video. OriginChats uses `@originchats/voice` signalling, so joining a voice channel shows a notice.
 - Threads and forums.
 - Polls (shown as text).
+- Signing embeds and slash commands (there is no UI to send either).
 - DMs, friends and groups.
 - Web Push.
 - Channel reordering.

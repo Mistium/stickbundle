@@ -3,16 +3,17 @@
 //
 // Protocol reference: https://docs.originchats.com/protocol/model/
 
-import { roturValidator } from "./rotur.js";
+import { roturAccount, roturValidator } from "./rotur.js";
 import {
   getLocalLogin,
-  getRoturToken,
   getSession,
   setLocalLogin,
   setSession,
 } from "./storage.js";
 
-const CLIENT_NAME = "velora";
+// Shown to other people as this connection's client; matches the client's
+// name in clients.originchats.com/openable.json.
+const CLIENT_NAME = "stickbundle";
 const REQUEST_TIMEOUT = 15000;
 
 function deviceKind() {
@@ -31,6 +32,10 @@ function socketUrl(url) {
 
 let listenerSeq = 0;
 
+// Wall-clock seconds from a monotonic source, so changes to the device clock
+// mid-session don't move it.
+const localNow = () => (performance.timeOrigin + performance.now()) / 1000;
+
 class OCConnection {
   constructor(url, { onEvent, onState }) {
     this.url = url;
@@ -48,6 +53,34 @@ class OCConnection {
     this.closedByUser = false;
     this.authAttempt = null;
     this.extraAuth = {};
+    // Server clock: offset from this device's clock, in seconds.
+    this.clockOffset = 0;
+  }
+
+  // The server's time now, in Unix seconds, for signed timestamps. The
+  // device clock can be wrong; the offset comes from the handshake and is
+  // refined with a timed ping after sign-in.
+  serverNow() {
+    return localNow() + this.clockOffset;
+  }
+
+  syncClock() {
+    const t0 = localNow();
+    this.request("ping", { sent_at: t0 }, { timeout: 8000 })
+      .then((f) => {
+        const t3 = localNow();
+        const t1 = Number(f.server_received_at);
+        const t2 = Number(f.server_sent_at);
+        if (!isFinite(t1) || !isFinite(t2) || t3 < t0 || t2 < t1) {
+          return;
+        }
+        const rtt = t3 - t0 - (t2 - t1);
+        if (rtt < 0 || rtt > 5) {
+          return;
+        }
+        this.clockOffset = (t1 - t0 + (t2 - t3)) / 2;
+      })
+      .catch(() => {});
   }
 
   setState(state, error = null) {
@@ -193,6 +226,9 @@ class OCConnection {
     switch (frame.cmd) {
       case "handshake":
         this.handshake = frame.val || {};
+        if (isFinite(Number(this.handshake.server_time))) {
+          this.clockOffset = Number(this.handshake.server_time) - localNow();
+        }
         this.onEvent(this, frame, false);
         this.signIn();
         return;
@@ -206,7 +242,7 @@ class OCConnection {
           setSession(this.url, {
             token: frame.session_token,
             username: frame.user && frame.user.username,
-            rotur: getRoturToken() || null,
+            rotur: roturAccount(),
           });
         }
         if (this.authAttempt && this.authAttempt.kind === "local" && this.authAttempt.save) {
@@ -214,6 +250,7 @@ class OCConnection {
         }
         this.authAttempt = null;
         this.setState("ready");
+        this.syncClock();
         this.onEvent(this, frame);
         return;
       case "auth_error":
@@ -232,6 +269,11 @@ class OCConnection {
   // Rotur validator is spent on it.
   keyMatchesServer() {
     const key = String(this.handshake.validator_key || "");
+    // Like the official client, only keys bound to an http(s) URL are
+    // checked; the DM server's key names its wss:// address.
+    if (!/^originChats-https?:\/\//i.test(key)) {
+      return true;
+    }
     const m = /^originChats-(.+)-[A-Za-z0-9]{32}$/.exec(key);
     if (!m) {
       return false;
@@ -247,11 +289,12 @@ class OCConnection {
     const hs = this.handshake;
     this.setState("authing");
     const base = { client: CLIENT_NAME, device: deviceKind(), ...this.extraAuth };
-    const token = getRoturToken();
+    const account = roturAccount();
     const session = getSession(this.url);
     const caps = hs.capabilities || [];
 
-    if (session && session.token && (session.rotur || null) === (token || null)) {
+    // A session only resumes for the Rotur account (or none) that made it.
+    if (session && session.token && (session.rotur || null) === (account || null)) {
       this.authAttempt = { kind: "session" };
       this.rawSend({ cmd: "auth", session: session.token, ...base });
       return;
@@ -262,20 +305,27 @@ class OCConnection {
       this.rawSend({ cmd: "login", username: local.username, password: local.password, ...base });
       return;
     }
-    if (token && hs.auth_mode !== "cracked-only" && caps.includes("auth")) {
+    if (account && hs.auth_mode !== "cracked-only" && caps.includes("auth")) {
       if (!this.keyMatchesServer()) {
         this.setState("error", "This server's identity doesn't match its address, so Velora won't sign in to it.");
         return;
       }
       this.authAttempt = { kind: "rotur" };
       try {
-        const validator = await roturValidator(token, hs.validator_key);
+        const validator = await roturValidator(hs.validator_key);
         if (this.handshake !== hs) {
           return;
         }
         this.rawSend({ cmd: "auth", validator, ...base });
       } catch (e) {
-        this.setState("error", e.status === 401 || e.status === 403 ? "Your Rotur key was rejected - sign in again." : "Couldn't reach Rotur to sign in.");
+        this.setState(
+          "error",
+          e.name === "RoturPermissionError"
+            ? "Rotur needs your permission to sign you in here - sign in with Rotur again."
+            : e.status === 401 || e.status === 403
+              ? "Your Rotur sign-in expired - sign in again."
+              : "Couldn't reach Rotur to sign in.",
+        );
       }
       return;
     }
@@ -291,7 +341,9 @@ class OCConnection {
       this.signIn();
       return;
     }
-    if (attempt && attempt.kind === "local" && !attempt.save) {
+    // Only a credential failure (no access-control reason) means the saved
+    // login is wrong; a password or invite prompt keeps it.
+    if (attempt && attempt.kind === "local" && !attempt.save && !frame.reason) {
       setLocalLogin(this.url, null);
     }
     const reason = frame.reason || "";
@@ -331,7 +383,13 @@ class OCConnection {
         this.rawSend({ ...attempt.frame, client: CLIENT_NAME, device: deviceKind(), ...this.extraAuth });
       };
       const prev = this.onState;
+      let settled = false;
       const done = (ok, err) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
         this.onState = prev;
         if (ok) {
           resolve();
@@ -339,11 +397,12 @@ class OCConnection {
           reject(new Error(err || "Sign-in failed"));
         }
       };
+      const timer = setTimeout(() => done(false, "The server didn't answer in time."), 20000);
       this.onState = (c) => {
         prev(c);
         if (c.state === "ready") {
           done(true);
-        } else if (c.state === "needs_login" || c.state === "error") {
+        } else if (c.state === "needs_login" || c.state === "error" || c.state === "closed") {
           done(false, c.error);
         }
       };

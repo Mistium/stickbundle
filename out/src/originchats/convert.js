@@ -29,8 +29,6 @@ function bitsFromPermissions(list) {
   if (perms.has("manage_server")) bits |= P.MANAGE_SERVER;
   if (perms.has("manage_roles")) bits |= P.MANAGE_ROLES;
   if (perms.has("manage_users")) bits |= P.KICK | P.BAN;
-  if (perms.has("kick_members")) bits |= P.KICK;
-  if (perms.has("manage_messages")) bits |= P.MANAGE_MESSAGES;
   return bits;
 }
 
@@ -104,6 +102,9 @@ function toVAttachment(a) {
     width: a.width,
     height: a.height,
     oc_id: a.id,
+    // The record as the server returned it: sent back as-is, because a
+    // signature covers exactly this object.
+    oc_raw: a,
   };
 }
 
@@ -149,7 +150,14 @@ function makeCtx(st, globalMe) {
     // Server accounts (`USR:local_bob`) show by their nickname when no one
     // else on the server already goes by it.
     vname(u) {
-      if (st.me && u === st.me.username && globalMe && globalMe.username) {
+      // ...unless someone else on this server already has that name.
+      if (
+        st.me &&
+        u === st.me.username &&
+        globalMe &&
+        globalMe.username &&
+        (globalMe.username === st.me.username || !st.users.has(globalMe.username))
+      ) {
         return globalMe.username;
       }
       const user = st.users.get(u);
@@ -159,11 +167,11 @@ function makeCtx(st, globalMe) {
       return u;
     },
     ocname(u) {
-      if (globalMe && u === globalMe.username && st.me) {
-        return st.me.username;
-      }
       if (st.users.has(u)) {
         return u;
+      }
+      if (globalMe && u === globalMe.username && st.me) {
+        return st.me.username;
       }
       for (const user of st.users.values()) {
         if (user.cracked && user.nickname === u) {

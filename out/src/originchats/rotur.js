@@ -1,51 +1,113 @@
-// The few Rotur calls the client needs: who the account key belongs to, and
-// validators that prove that identity to one OriginChats connection.
+// Rotur sign-in through rotur-sdk, and the validators that prove that
+// identity to one OriginChats connection.
+//
+// With a Rotur app ID (built in with ROTUR_APP_ID=app_… ./scripts/build.sh)
+// the login button uses Sign in with Rotur: the app has to list this site's
+// origin as a redirect URI at rotur.dev/me/developer. Without one it uses the
+// SDK's rotur.dev/auth flow, which hands back a token scoped to making
+// validators.
 
-const ROTUR_API = "https://api.rotur.dev";
+import { Rotur, performAuth } from "rotur-sdk";
+import { getProfile, getRoturToken, setProfile, setRoturToken } from "./storage.js";
 
-async function roturRequest(method, path, token, body) {
-  const res = await fetch(`${ROTUR_API}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const err = new Error((data && (data.error || data.message)) || `rotur_${res.status}`);
-    err.status = res.status;
-    throw err;
+// Replaced at build time by `--define`; empty means no app is registered.
+const APP_ID = typeof __ROTUR_APP_ID__ !== "undefined" ? __ROTUR_APP_ID__ : "";
+// validators:generate signs you in to servers; signing:private lets the SDK
+// sign your messages with your Rotur identity key.
+const PERMISSIONS = ["validators:generate", "signing:private"];
+
+let client = null;
+
+function roturClient() {
+  if (client) {
+    return client;
   }
-  return data;
+  if (APP_ID) {
+    // Also finishes a full-page sign-in that just came back from Rotur.
+    client = new Rotur({ app: APP_ID, permissions: PERMISSIONS });
+  } else {
+    const token = getRoturToken();
+    client = token ? new Rotur({ token }) : null;
+  }
+  return client;
 }
 
-// The signed-in account, trimmed to what the UI shows.
-async function roturMe(token) {
-  const me = await roturRequest("GET", "/v2/me", token);
-  const username = me.username || me.name;
-  if (!username) {
-    throw new Error("rotur_no_account");
-  }
+function toProfile(u) {
+  const username = u.username || u.name;
   return {
-    id: String(me["sys.id"] || me.id || username),
+    kind: "rotur",
+    id: String(u.id || u["sys.id"] || username),
     username,
-    pfp: me.pfp || `https://avatars.rotur.dev/${encodeURIComponent(username)}`,
+    pfp: u.avatar || u.pfp || roturAvatar(username),
     banner: `https://avatars.rotur.dev/.banners/${encodeURIComponent(username)}`,
-    bio: me.bio || "",
+    bio: u.bio || "",
   };
 }
 
-async function roturValidator(token, key) {
-  const data = await roturRequest("POST", "/v2/validators", token, { key });
-  if (!data || !data.validator) {
+// Opens Rotur's sign-in window. Call it from a click so the popup isn't blocked.
+async function signInWithRotur({ signal } = {}) {
+  let profile;
+  if (APP_ID) {
+    profile = toProfile(await roturClient().signIn({ signal }));
+  } else {
+    const { token } = await performAuth({ requires: PERMISSIONS, signal });
+    setRoturToken(token);
+    client = new Rotur({ token });
+    profile = toProfile(await client.me.get());
+  }
+  setProfile(profile);
+  return profile;
+}
+
+// Advanced: sign in with an account key pasted by hand.
+async function signInWithKey(token) {
+  const c = new Rotur({ token });
+  const profile = toProfile(await c.me.get());
+  setRoturToken(token);
+  client = c;
+  setProfile(profile);
+  return profile;
+}
+
+// The Rotur account this browser is signed in as, or null.
+function roturAccount() {
+  const p = getProfile();
+  return p && p.kind === "rotur" ? p.username : null;
+}
+
+async function roturValidator(key) {
+  const c = roturClient();
+  if (!c) {
+    throw Object.assign(new Error("Not signed in to Rotur"), { status: 401 });
+  }
+  const { validator } = await c.validators.generate(key);
+  if (!validator) {
     throw new Error("rotur_no_validator");
   }
-  return data.validator;
+  return validator;
+}
+
+async function roturSignOut() {
+  const c = client || (APP_ID ? roturClient() : null);
+  client = null;
+  setRoturToken(null);
+  if (c && APP_ID) {
+    await c.signOut().catch(() => {});
+  }
 }
 
 const roturAvatar = (username) =>
   `https://avatars.rotur.dev/${encodeURIComponent(username)}`;
 
-export { roturAvatar, roturMe, roturValidator };
+const roturUsesApp = () => !!APP_ID;
+
+export {
+  roturAccount,
+  roturAvatar,
+  roturClient,
+  roturSignOut,
+  roturUsesApp,
+  roturValidator,
+  signInWithKey,
+  signInWithRotur,
+};

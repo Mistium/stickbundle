@@ -20,8 +20,9 @@ import {
   toVMessage,
   toVRole,
 } from "./convert.js";
-import { cidFor, eidFor, msgNum, readMarker, sidFor, uuidOf } from "./ids.js";
-import { roturAvatar, roturValidator } from "./rotur.js";
+import { cidFor, eidFor, knownNum, msgNum, readMarker, sidFor, uuidOf } from "./ids.js";
+import { cachedVerification, checkSigningAccess, isSigned, signMessage, verifyMessage } from "./signing.js";
+import { roturAccount, roturAvatar, roturValidator } from "./rotur.js";
 import * as store from "./storage.js";
 
 const DISCOVERY_URL = "https://discovery.host.originchats.com/discovery.json";
@@ -148,10 +149,47 @@ function emojiOf(st, id) {
 function vMessage(st, channel, raw) {
   const m = toVMessage(ctxOf(st), lookupEmoji, channel, raw);
   messageIndex.set(m.id, { sid: st.sid, channel, raw });
+  if (signatureMatters(st, raw)) {
+    if (isSigned(raw)) {
+      const known = cachedVerification(raw);
+      m.signed = known || "pending";
+      if (!known) checkSignature(st, channel, raw, m.id);
+    } else {
+      m.signed = "unsigned";
+    }
+  }
   if (m.reply) {
     messageIndex.set(m.reply.id, messageIndex.get(m.reply.id) || { sid: st.sid, channel, raw: null });
   }
   return m;
+}
+
+// Signature marks only mean something for Rotur accounts on servers that
+// take signatures; server accounts, system messages, plain webhooks and
+// slash command replies can't sign.
+function signatureMatters(st, raw) {
+  if (!st.conn.has("message_signatures_v1")) return false;
+  if (!raw.user || raw.user === "originChats" || raw.interaction || raw.ephemeral) return false;
+  if (raw.webhook && !raw.alias) return false;
+  if (String(raw.user).startsWith("USR:")) return false;
+  const u = st.users.get(raw.user);
+  return !(u && u.cracked);
+}
+
+// Verifies a signed message, then redraws it with the result.
+function checkSignature(st, channel, raw, id) {
+  const url = st.conn.handshake && st.conn.handshake.signing_url;
+  if (!url) return;
+  verifyMessage(raw, url).then(() => {
+    const entry = messageIndex.get(id);
+    if (entry && entry.raw && entry.raw.id === raw.id) {
+      if (st.isDM) {
+        hooks.emit({ type: "oc_msg_patch", key: dmKey(st, channel), id, patch: { signed: vMessage(st, channel, entry.raw).signed } });
+      } else {
+        hooks.emit({ type: "chat_message_update", message: vMessage(st, channel, entry.raw) });
+      }
+    }
+  });
 }
 
 function myRoles(st) {
@@ -175,7 +213,21 @@ function myPermissionList(st) {
 
 function myBits(st) {
   let bits = bitsFromPermissions(myPermissionList(st)) | P.SEND | P.VIEW;
-  if (st.conn.handshake && st.conn.handshake.attachments && st.conn.handshake.attachments.enabled) {
+  // Deleting others' messages and pinning are channel rules, not server
+  // permissions: offer them when any channel lets one of your roles do it.
+  const roles = myRoles(st).filter((r) => r !== "user");
+  if (
+    roles.length &&
+    st.channels.some((ch) =>
+      ["delete", "pin"].some((k) => ((ch.permissions && ch.permissions[k]) || []).some((r) => roles.includes(r))),
+    )
+  ) {
+    bits |= P.MANAGE_MESSAGES;
+  }
+  // The last handshake still counts while reconnecting, so the composer
+  // doesn't lose its attach button for a moment.
+  const hs = st.conn.handshake || st.lastHandshake;
+  if (hs && hs.attachments && hs.attachments.enabled) {
     bits |= P.ATTACH;
   }
   return bits;
@@ -192,12 +244,10 @@ function serverSummary(st) {
   const ready = st.conn.state === "ready";
   let unread = false;
   let mentions = 0;
-  if (ready) {
-    for (const ch of st.channels) {
-      const u = st.unreads[ch.name];
-      if (u && u.unread_count > 0) unread = true;
-      if (u && u.ping_count > 0) mentions += u.ping_count;
-    }
+  for (const ch of st.channels) {
+    const u = st.unreads[ch.name];
+    if (u && u.unread_count > 0) unread = true;
+    if (u && u.ping_count > 0) mentions += u.ping_count;
   }
   const users = [...st.users.values()];
   return {
@@ -217,6 +267,7 @@ function serverSummary(st) {
     oc_url: st.url,
     oc_state: st.conn.state,
     oc_error: st.conn.error,
+    oc_loaded: !!st.everLoaded,
   };
 }
 
@@ -307,11 +358,13 @@ function vPresence(u) {
 
 function vDetail(st) {
   let { channels, categories } = vChannels(st);
-  if (st.conn.state !== "ready") {
+  // Before a server's first sign-in there are no channels yet; a reconnect
+  // keeps showing the last ones.
+  if (st.conn.state !== "ready" && !st.everLoaded) {
     // Something to navigate to while the server signs in; the sign-in gate
     // covers it, then moves to a real channel.
     channels = [
-      { cid: cidFor(st.url, "\u0000gate"), name: "signing-in", type: "text", topic: "", category: "", position: 0, can_post: false, locked: true },
+      { cid: cidFor(st.url, "\u0000gate"), name: "connecting", type: "text", topic: "", category: "", position: 0, can_post: false, locked: true },
     ];
     categories = [];
   }
@@ -403,6 +456,11 @@ async function loadServer(st) {
   st.loaded = true;
   flushWaiters(st, true);
   adoptLocalIdentity(st);
+  if (st.isDM) {
+    dmListsChanged();
+    st.everLoaded = true;
+    return;
+  }
   hooks.emit({ type: "chat_members_stale", server: st.sid });
   hooks.emit({ type: "chat_emojis_update" });
   emitServersChanged(st);
@@ -426,12 +484,12 @@ function refreshRoles(st) {
     .catch(() => {});
 }
 
-function memberUpdate(st, username, change) {
+function memberUpdate(st, username, change, shownAs) {
   const u = st.users.get(username);
   hooks.emit({
     type: "chat_member_update",
     server: st.sid,
-    username: ctxOf(st).vname(username),
+    username: shownAs || ctxOf(st).vname(username),
     change,
     member: u ? vMember(st, u) : undefined,
     member_count: st.users.size,
@@ -446,10 +504,12 @@ function presenceUpdate(st, u) {
 // ---------------------------------------------------------------- events
 
 function onFrame(st, f, isResponse) {
+  if (st.isDM && dmFrame(st, f, isResponse)) return;
   const ctx = ctxOf(st);
   const chan = f.channel;
   switch (f.cmd) {
     case "handshake":
+      st.lastHandshake = f.val || null;
       if (f.val && f.val.server) {
         st.name = f.val.server.name || st.name;
         st.icon = f.val.server.icon || null;
@@ -514,14 +574,15 @@ function onFrame(st, f, isResponse) {
       return;
     case "message_delete": {
       if (f.thread_id) return;
-      const id = msgNum(f.id, null);
+      const id = knownNum(f.id);
+      if (!id) return;
       hooks.emit({ type: "chat_message_delete", channel: cidFor(st.url, chan), id });
       return;
     }
     case "message_pin":
     case "message_unpin": {
-      const id = msgNum(f.id, null);
-      const entry = messageIndex.get(id);
+      const id = knownNum(f.id);
+      const entry = id && messageIndex.get(id);
       if (entry && entry.raw) {
         entry.raw = { ...entry.raw, pinned: f.cmd === "message_pin" };
         hooks.emit({ type: "chat_message_update", message: vMessage(st, chan, entry.raw) });
@@ -533,7 +594,8 @@ function onFrame(st, f, isResponse) {
     case "reaction_remove":
     case "message_react_add":
     case "message_react_remove": {
-      const id = msgNum(f.id, null);
+      const id = knownNum(f.id);
+      if (!id) return;
       const entry = messageIndex.get(id);
       if (!entry || !entry.raw) return;
       let reactions = f.reactions;
@@ -567,6 +629,10 @@ function onFrame(st, f, isResponse) {
       if (chan && st.unreads[chan]) {
         st.unreads[chan] = { ...st.unreads[chan], last_viewed: f.last_viewed, unread_count: 0, ping_count: 0 };
       }
+      if (chan) {
+        const cid = cidFor(st.url, chan);
+        hooks.emit({ type: "oc_read", key: `c:${cid}`, cid, sid: st.sid });
+      }
       return;
     case "user_join":
       if (f.user && f.user.username) {
@@ -574,12 +640,23 @@ function onFrame(st, f, isResponse) {
         memberUpdate(st, f.user.username, "joined");
       }
       return;
-    case "user_leave":
-    case "user_kick": {
+    case "user_leave": {
       const name = f.username || (typeof f.user === "string" ? f.user : f.user && f.user.username);
       if (name) {
+        const shown = ctx.vname(name);
         st.users.delete(name);
-        memberUpdate(st, name, "left");
+        memberUpdate(st, name, "left", shown);
+      }
+      return;
+    }
+    case "user_kick": {
+      // A kick disconnects them; they're still a member.
+      const name = typeof f.user === "string" ? f.user : f.user && f.user.username;
+      const prev = name && st.users.get(name);
+      if (prev) {
+        const next = { ...prev, status: { status: "offline", text: "" }, clients: [], devices: [] };
+        st.users.set(name, next);
+        presenceUpdate(st, next);
       }
       return;
     }
@@ -616,11 +693,15 @@ function onFrame(st, f, isResponse) {
       const name = f.username || f.user;
       const prev = st.users.get(name);
       if (prev) {
+        // A nickname change can change how a server account is shown, so the
+        // old entry goes and the new one comes in.
+        const before = ctx.vname(name);
         const next = { ...prev };
         if ("nickname" in f || f.cmd === "nickname_remove") next.nickname = f.nickname || null;
         if (f.pfp) next.pfp = f.pfp;
         st.users.set(name, next);
-        memberUpdate(st, name, "role");
+        if (ctx.vname(name) !== before) memberUpdate(st, name, "left", before);
+        memberUpdate(st, name, ctx.vname(name) !== before ? "joined" : "role");
       }
       return;
     }
@@ -693,6 +774,19 @@ function stBySid(sid) {
   return st;
 }
 
+// Like channelOf, but a channel of a server that hasn't signed in yet (a
+// reload straight into a channel) is waited for.
+async function channelOfAsync(cid) {
+  try {
+    return channelOf(cid);
+  } catch (e) {
+    const waiting = [...servers.values()].filter((st) => st.conn.state !== "ready" || !st.loaded);
+    if (!waiting.length) throw e;
+    await Promise.all(waiting.map((st) => waitReady(st)));
+    return channelOf(cid);
+  }
+}
+
 function channelOf(cid) {
   let c = channelIndex.get(cid);
   if (!c) {
@@ -752,10 +846,9 @@ async function uploadTo(st, file) {
   if (c.uploadToken) {
     form.append("local_upload_token", c.uploadToken);
   } else {
-    const token = store.getRoturToken();
-    if (!token) throw httpError(401, "Sign in with Rotur to upload here.");
+    if (!roturAccount()) throw httpError(401, "Sign in with Rotur to upload here.");
     form.append("validator_key", hs.validator_key);
-    form.append("validator", await roturValidator(token, hs.validator_key));
+    form.append("validator", await roturValidator(hs.validator_key));
   }
   const res = await realFetch(`${st.url}/attachments/upload`, { method: "POST", body: form });
   const data = await res.json().catch(() => ({}));
@@ -767,6 +860,7 @@ async function uploadTo(st, file) {
 
 function viewServer() {
   const v = hooks.getState().view || {};
+  if (v.kind === "dm" || v.kind === "group") return roturAccount() ? dmState() : null;
   return v.sid ? servers.get(v.sid) : null;
 }
 
@@ -942,7 +1036,9 @@ route("GET", /^\/chat\/servers$/, () => ({ servers: listServers() }));
 route("GET", /^\/chat\/servers\/([^/]+)$/, async (m) => {
   const st = stBySid(m[1]);
   st.conn.state === "idle" && st.conn.connect();
-  await waitReady(st);
+  // Signed in and loading the rest: worth a short wait. Still connecting:
+  // answer now, so the server opens straight away; it refreshes once ready.
+  if (st.conn.state === "ready") await waitReady(st, 8000);
   return vDetail(st);
 });
 
@@ -976,8 +1072,11 @@ route("DELETE", /^\/chat\/servers\/([^/]+)\/members\/([^/?]+)$/, async (m, body,
   await c.request(ban ? "user_ban" : "user_kick", { user }).catch((e) => {
     throw ocError(e);
   });
-  st.users.delete(user);
-  memberUpdate(st, user, ban ? "banned" : "kicked");
+  if (ban) {
+    const shown = ctxOf(st).vname(user);
+    st.users.delete(user);
+    memberUpdate(st, user, "banned", shown);
+  }
   return { ok: true };
 });
 
@@ -1026,7 +1125,9 @@ route(["PATCH", "DELETE"], /^\/chat\/servers\/([^/]+)\/roles\/(r[0-9a-f]{10})$/,
     delete st.roles[role.name];
   } else {
     const fields = { id: role.id };
-    if (body.name != null) fields.name = body.name;
+    if (body.name != null && body.name !== role.name) {
+      throw httpError(400, "Roles can't be renamed on OriginChats: members and channel rules refer to roles by name.");
+    }
     if ("color" in body) fields.color = body.color || "";
     if ("hoist" in body) fields.hoisted = !!body.hoist;
     if ("permissions" in body) fields.permissions = permissionsFromBits(Number(body.permissions) || 0, role.permissions);
@@ -1076,7 +1177,7 @@ route("POST", /^\/chat\/servers\/([^/]+)\/channels$/, async (m, body) => {
 });
 
 route(["PATCH", "DELETE"], /^\/chat\/channels\/(c[0-9a-f]{10})$/, async (m, body, url, method) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   const c = await readyConn(st);
   if (method === "DELETE") {
     await c.request("channel_delete", { name }).catch((e) => {
@@ -1106,13 +1207,16 @@ route("POST", /^\/chat\/servers\/([^/]+)\/leave$/, (m) => {
   st.conn.close();
   store.removeServer(st.url);
   servers.delete(st.sid);
+  for (const [cid, c] of channelIndex) if (c.sid === st.sid) channelIndex.delete(cid);
+  for (const [id, e] of messageIndex) if (e.sid === st.sid) messageIndex.delete(id);
+  for (const [eid, e] of emojiIndex) if (e.sid === st.sid) emojiIndex.delete(eid);
   hooks.emit({ type: "chat_server_removed", server: st.sid, reason: "left" });
   emitServersChanged(null);
   return { ok: true };
 });
 
 route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/messages$/, async (m, body, url) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   const c = await readyConn(st);
   const limit = Math.min(100, Number(url.searchParams.get("limit")) || 50);
   const before = url.searchParams.get("before");
@@ -1126,7 +1230,7 @@ route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/messages$/, async (m, body, ur
     throw ocError(e);
   });
   let list = (r.val || []).filter(Boolean).map((raw) => vMessage(st, name, raw));
-  if (after) {
+  if (after && /^\d+$/.test(after)) {
     const a = BigInt(after);
     list = list.filter((x) => BigInt(x.id) > a);
   }
@@ -1134,14 +1238,14 @@ route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/messages$/, async (m, body, ur
 });
 
 route("POST", /^\/chat\/channels\/(c[0-9a-f]{10})\/read$/, async (m) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   st.conn.send("unreads_ack", { channel: name });
   st.unreads[name] = { ...(st.unreads[name] || {}), unread_count: 0, ping_count: 0 };
   return { ok: true };
 });
 
 route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/pins$/, async (m) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   const c = await readyConn(st);
   const r = await c.request("messages_pinned", { channel: name }).catch((e) => {
     throw ocError(e);
@@ -1150,7 +1254,7 @@ route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/pins$/, async (m) => {
 });
 
 route("GET", /^\/chat\/channels\/(c[0-9a-f]{10})\/search$/, async (m, body, url) => {
-  const { st, name } = channelOf(m[1]);
+  const { st, name } = await channelOfAsync(m[1]);
   await readyConn(st);
   const list = await searchChannel(st, name, parseQuery(url.searchParams.get("q"))).catch((e) => {
     throw ocError(e);
@@ -1181,7 +1285,7 @@ route(["PUT", "DELETE"], /^\/chat\/messages\/(\d+)\/pin$/, async (m, body, url, 
 });
 
 route(["PATCH", "DELETE"], /^\/chat\/messages\/(\d+)$/, async (m, body, url, method) => {
-  const { st, channel, uuid } = messageOf(m[1]);
+  const { st, channel, uuid, entry } = messageOf(m[1]);
   const c = await readyConn(st);
   if (method === "DELETE") {
     await c.request("message_delete", { channel, id: uuid }).catch((e) => {
@@ -1189,7 +1293,21 @@ route(["PATCH", "DELETE"], /^\/chat\/messages\/(\d+)$/, async (m, body, url, met
     });
   } else {
     const content = contentToOC(ctxOf(st), (eid) => emojiIndex.get(eid), body.message);
-    await c.request("message_edit", { channel, id: uuid, content }).catch((e) => {
+    const fields = { channel, id: uuid, content };
+    const raw = entry.raw;
+    if (raw && c.me && raw.user === c.me.username) {
+      // An edit of your own message is signed over the whole new version.
+      const current = raw.original || raw;
+      Object.assign(
+        fields,
+        await signMessage(c, {
+          content,
+          attachments: current.attachments || [],
+          after: Number(current.signed_at) || 0,
+        }),
+      );
+    }
+    await c.request("message_edit", fields).catch((e) => {
       throw ocError(e);
     });
   }
@@ -1274,6 +1392,7 @@ route(["PATCH", "DELETE"], /^\/chat\/servers\/([^/]+)\/emojis\/(e[0-9a-f]{10})$/
     const r = await c.request("emoji_update", { emoji_id: e.id, name: body.name }).catch((x) => {
       throw ocError(x);
     });
+    if (r.updated === false) throw httpError(400, "That name is already taken.");
     st.emojis[e.id] = { ...st.emojis[e.id], name: r.name || body.name };
   }
   hooks.emit({ type: "chat_emojis_update" });
@@ -1423,8 +1542,6 @@ route("GET", /^\/chat\/unfurl$/, () => ({ embed: null }));
 // Velora features with no OriginChats equivalent answer with empty data so
 // the UI around them stays quiet.
 const EMPTY = [
-  [/^\/im\/conversations$/, { conversations: [] }],
-  [/^\/groups$/, { groups: [] }],
   [/^\/friends$/, { friends: [] }],
   [/^\/friends\/requests$/, { incoming: [], outgoing: [], requests: [] }],
   [/^\/friends\/status\/.+$/, { status: "none" }],
@@ -1455,6 +1572,432 @@ async function handle(method, url, body) {
     }
   }
   throw httpError(404, "That isn't available on OriginChats servers.");
+}
+
+// ---------------------------------------------------------------- DMs
+//
+// Direct messages and group chats live on the OriginChats DM server
+// (dms.originchats.com), like in the official client. Each conversation is a
+// `chat` channel there: a DM's description is "Direct message with <user>",
+// anything else is a group. New conversations are made with text commands in
+// its `cmds` channel. Velora's own DM and group UI is driven from it.
+
+const DM_URL = "https://dms.originchats.com";
+const DM_PREFIX = "Direct message with ";
+let dm = null;
+
+function dmState() {
+  if (!dm) {
+    dm = stateFor(DM_URL);
+    dm.isDM = true;
+  }
+  return dm;
+}
+
+const isChat = (ch) => ch && ch.type === "chat";
+const isDmChannel = (ch) => isChat(ch) && String(ch.description || "").startsWith(DM_PREFIX);
+const isGroupChannel = (ch) => isChat(ch) && !isDmChannel(ch);
+const dmOther = (ch) => String(ch.description || "").slice(DM_PREFIX.length) || ch.display_name || ch.name;
+const roomOf = (ch) => `grp_${ch.name}`;
+
+function dmChannelWith(st, username) {
+  const want = ctxOf(st).ocname(username).toLowerCase();
+  return st.channels.find((ch) => isDmChannel(ch) && dmOther(ch).toLowerCase() === want) || null;
+}
+
+function groupChannel(st, room) {
+  return st.channels.find((ch) => isGroupChannel(ch) && roomOf(ch) === room) || null;
+}
+
+// Where a DM-server channel's messages live in Velora's store.
+function dmKey(st, channelName) {
+  const ch = st.channels.find((c) => c.name === channelName);
+  if (!ch) return null;
+  return isDmChannel(ch) ? `d:${ctxOf(st).vname(dmOther(ch)).toLowerCase()}` : `g:${roomOf(ch)}`;
+}
+
+// The DM message shape Velora's vm() reads.
+function toIm(st, ch, raw) {
+  const v = vMessage(st, ch.name, raw);
+  const ctx = ctxOf(st);
+  const me = ctx.vname(st.me ? st.me.username : "");
+  const other = ctx.vname(dmOther(ch));
+  const from = v.author ? v.author.username : raw.user;
+  return {
+    id: v.id,
+    body: v.body,
+    from,
+    to: from === me ? other : me,
+    from_pfp: v.author && v.author.pfp,
+    sent_at: v.created_at,
+    edited_at: v.edited_at,
+    reply: v.reply
+      ? { id: v.reply.id, from: v.reply.author && v.reply.author.username, body: v.reply.body, gone: false }
+      : null,
+    reactions: v.reactions,
+    attachments: v.attachments,
+    embeds: v.embeds,
+    signed: v.signed,
+  };
+}
+
+// The group message shape Velora's Qj() reads.
+function toGroupMessage(st, ch, raw) {
+  const v = vMessage(st, ch.name, raw);
+  return {
+    room: roomOf(ch),
+    id: v.id,
+    user: v.author ? v.author.username : raw.user,
+    pfp: v.author && v.author.pfp,
+    message: v.body,
+    timestamp: v.created_at,
+    edited_at: v.edited_at,
+    reply: v.reply ? { id: v.reply.id, user: v.reply.author && v.reply.author.username, message: v.reply.body } : null,
+    reactions: v.reactions,
+    attachments: v.attachments,
+    embeds: v.embeds,
+    signed: v.signed,
+    system: !!v.system,
+  };
+}
+
+function dmListsChanged() {
+  clearTimeout(dmListsChanged.t);
+  dmListsChanged.t = setTimeout(() => hooks.emit({ type: "oc_dm_lists" }), 30);
+}
+
+// DM-server frames that need DM handling; false lets the generic handler run.
+function dmFrame(st, f, isResponse) {
+  const ch = f.channel ? st.channels.find((c) => c.name === f.channel) : null;
+  switch (f.cmd) {
+    case "channels_get":
+      if (Array.isArray(f.val)) {
+        st.channels = f.val;
+        dmListsChanged();
+      }
+      return true;
+    case "message_new": {
+      if (isResponse || !f.message || !ch || !isChat(ch)) return true;
+      const u = st.unreads[ch.name] || (st.unreads[ch.name] = { unread_count: 0, ping_count: 0 });
+      ch.last_message = f.message.timestamp;
+      if (st.me && f.message.user !== st.me.username) u.unread_count = (u.unread_count || 0) + 1;
+      if (isDmChannel(ch)) {
+        const mine = st.me && f.message.user === st.me.username;
+        hooks.emit({ type: mine ? "im_sent" : "im_received", message: toIm(st, ch, f.message) });
+      } else {
+        hooks.emit({ type: "roomMessage", ...toGroupMessage(st, ch, f.message) });
+      }
+      return true;
+    }
+    case "message_edit": {
+      if (!f.message || !ch) return true;
+      const key = dmKey(st, ch.name);
+      const v = isDmChannel(ch) ? toIm(st, ch, f.message) : toGroupMessage(st, ch, f.message);
+      const body = isDmChannel(ch) ? v.body : v.message;
+      hooks.emit({
+        type: "oc_msg_patch",
+        key,
+        id: v.id,
+        patch: { body, edited_at: v.edited_at, attachments: v.attachments, embeds: v.embeds, signed: v.signed },
+      });
+      return true;
+    }
+    case "message_delete":
+      if (ch && knownNum(f.id)) hooks.emit({ type: "oc_msg_remove", key: dmKey(st, ch.name), id: knownNum(f.id) });
+      return true;
+    case "message_pin":
+    case "message_unpin":
+      return true;
+    case "reaction_add":
+    case "reaction_remove":
+    case "message_react_add":
+    case "message_react_remove": {
+      const id = knownNum(f.id);
+      if (!id) return true;
+      const entry = messageIndex.get(id);
+      if (!entry || !entry.raw || !ch) return true;
+      let reactions = f.reactions;
+      if (!reactions) {
+        reactions = { ...(entry.raw.reactions || {}) };
+        const users = new Set(reactions[f.emoji] || []);
+        if (/add$/.test(f.cmd)) users.add(f.from);
+        else users.delete(f.from);
+        if (users.size) reactions[f.emoji] = [...users];
+        else delete reactions[f.emoji];
+      }
+      entry.raw = { ...entry.raw, reactions };
+      hooks.emit({
+        type: "oc_msg_patch",
+        key: dmKey(st, ch.name),
+        id,
+        patch: { reactions: reactionsToV(ctxOf(st), lookupEmoji, reactions) },
+      });
+      return true;
+    }
+    case "typing":
+      if (ch && isDmChannel(ch) && f.user && !(st.me && f.user === st.me.username)) {
+        hooks.emit({ type: "dm_typing", from: ctxOf(st).vname(f.user), typing: Number(f.duration) !== 0 });
+      }
+      return true;
+    case "unreads_update":
+      if (f.channel && st.unreads[f.channel]) {
+        st.unreads[f.channel] = { ...st.unreads[f.channel], last_viewed: f.last_viewed, unread_count: 0, ping_count: 0 };
+      }
+      if (ch && isDmChannel(ch)) {
+        const who = ctxOf(st).vname(dmOther(ch)).toLowerCase();
+        hooks.emit({ type: "oc_read", key: `d:${who}`, dm: who });
+      }
+      return true;
+    default:
+      return false;
+  }
+}
+
+async function dmReady() {
+  const st = dmState();
+  if (!roturAccount()) throw httpError(401, "Sign in with Rotur to use direct messages.");
+  if (st.conn.state === "idle" || st.conn.state === "closed") st.conn.connect();
+  if (!(await waitReady(st))) throw httpError(503, st.conn.error || "Couldn't reach the DM server.");
+  return st;
+}
+
+// Runs a DM-server text command, then waits for a channel it should create.
+async function dmCommand(st, text, find, ms = 10000) {
+  const existing = find();
+  if (existing) return existing;
+  if (!st.conn.send("message_new", { channel: "cmds", content: text })) throw httpError(503, "offline");
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 150));
+    const ch = find();
+    if (ch) return ch;
+  }
+  throw httpError(504, "The DM server didn't answer in time.");
+}
+
+async function ensureDmChannel(st, username) {
+  const oc = ctxOf(st).ocname(username);
+  if (st.me && oc.toLowerCase() === st.me.username.toLowerCase()) throw httpError(400, "You can't message yourself.");
+  return dmCommand(st, `dm add ${oc}`, () => dmChannelWith(st, username));
+}
+
+route("GET", /^\/im\/conversations$/, async () => {
+  if (!roturAccount()) return { conversations: [] };
+  const st = dmState();
+  if (st.conn.state === "idle" || st.conn.state === "closed") st.conn.connect();
+  await waitReady(st, 8000);
+  const ctx = ctxOf(st);
+  const conversations = st.channels
+    .filter(isDmChannel)
+    .sort((a, b) => (Number(b.last_message) || 0) - (Number(a.last_message) || 0))
+    .map((ch) => {
+      const other = dmOther(ch);
+      const u = st.unreads[ch.name] || {};
+      return {
+        username: ctx.vname(other),
+        pfp: ch.icon || avatarFor(st, st.users.get(other), other),
+        unread: u.unread_count || 0,
+        last_at: (Number(ch.last_message) || 0) * 1000,
+      };
+    });
+  return { conversations };
+});
+
+route("GET", /^\/im\/with\/([^/?]+)$/, async (m, body, url) => {
+  const st = await dmReady();
+  const ch = dmChannelWith(st, decodeURIComponent(m[1]));
+  if (!ch) return { messages: [], has_more: false };
+  const fields = { channel: ch.name, limit: Math.min(100, Number(url.searchParams.get("limit")) || 50) };
+  const before = url.searchParams.get("before");
+  if (before && uuidOf(before)) fields.start = uuidOf(before);
+  const r = await st.conn.request("messages_get", fields).catch((e) => {
+    throw ocError(e);
+  });
+  return { messages: (r.val || []).filter(Boolean).map((raw) => toIm(st, ch, raw)), has_more: !r.at_start };
+});
+
+route("POST", /^\/im\/with\/([^/]+)\/read$/, async (m) => {
+  if (!roturAccount()) return { ok: true };
+  const st = dmState();
+  const ch = dmChannelWith(st, decodeURIComponent(m[1]));
+  if (ch && st.conn.state === "ready") {
+    st.conn.send("unreads_ack", { channel: ch.name });
+    st.unreads[ch.name] = { ...(st.unreads[ch.name] || {}), unread_count: 0, ping_count: 0 };
+  }
+  return { ok: true };
+});
+
+route("GET", /^\/im\/status-reply\/.+$/, () => ({ can: false }));
+
+// DM edits, deletes and reactions are the same commands as in channels.
+route("PATCH", /^\/im\/(\d+)\/edit$/, (m, body) =>
+  handle("PATCH", new URL(`/chat/messages/${m[1]}`, location.origin), { message: body.body }),
+);
+route("DELETE", /^\/im\/(\d+)$/, (m) => handle("DELETE", new URL(`/chat/messages/${m[1]}`, location.origin), {}));
+route(["PUT", "DELETE"], /^\/chat\/dm\/(\d+)\/reactions\/(.+)$/, (m, body, url, method) =>
+  handle(method, new URL(`/chat/messages/${m[1]}/reactions/${m[2]}`, location.origin), {}),
+);
+
+route("GET", /^\/groups$/, async () => {
+  if (!roturAccount()) return { groups: [] };
+  const st = dmState();
+  if (st.conn.state === "idle" || st.conn.state === "closed") st.conn.connect();
+  await waitReady(st, 8000);
+  const ctx = ctxOf(st);
+  return {
+    groups: st.channels
+      .filter(isGroupChannel)
+      .sort((a, b) => (Number(b.last_message) || 0) - (Number(a.last_message) || 0))
+      .map((ch) => ({
+        room: roomOf(ch),
+        name: ch.display_name || ch.name,
+        owner: ch.owner ? ctx.vname(ch.owner) : null,
+        members: (ch.members || []).map((u) => ctx.vname(u)),
+        unread: (st.unreads[ch.name] || {}).unread_count || 0,
+      })),
+  };
+});
+
+route("GET", /^\/groups\/([^/]+)\/messages$/, async (m, body, url) => {
+  const st = await dmReady();
+  const ch = groupChannel(st, decodeURIComponent(m[1]));
+  if (!ch) throw httpError(404, "That group doesn't exist any more.");
+  const r = await st.conn
+    .request("messages_get", { channel: ch.name, limit: Math.min(200, Number(url.searchParams.get("limit")) || 100) })
+    .catch((e) => {
+      throw ocError(e);
+    });
+  return { messages: (r.val || []).filter(Boolean).map((raw) => toGroupMessage(st, ch, raw)) };
+});
+
+// Group names travel inside text commands, so they can't contain spaces.
+const groupToken = (s) => String(s || "").trim().replace(/\s+/g, "-");
+
+route("POST", /^\/groups$/, async (m, body) => {
+  const st = await dmReady();
+  const name = groupToken(body.name);
+  if (!name) throw httpError(400, "name_required");
+  const before = new Set(st.channels.map((c) => c.name));
+  const ch = await dmCommand(st, `group create ${name}`, () =>
+    st.channels.find((c) => isGroupChannel(c) && !before.has(c.name) && (c.display_name || c.name) === name),
+  );
+  for (const u of body.members || []) {
+    st.conn.send("message_new", { channel: "cmds", content: `group add ${name} ${ctxOf(st).ocname(u)}` });
+  }
+  dmListsChanged();
+  return { group: { room: roomOf(ch), name } };
+});
+
+route("POST", /^\/groups\/([^/]+)\/members$/, async (m, body) => {
+  const st = await dmReady();
+  const ch = groupChannel(st, decodeURIComponent(m[1]));
+  if (!ch) throw httpError(404, "That group doesn't exist any more.");
+  const name = ch.display_name || ch.name;
+  st.conn.send("message_new", { channel: "cmds", content: `group add ${name} ${ctxOf(st).ocname(body.username)}` });
+  return { ok: true };
+});
+
+route("DELETE", /^\/groups\/([^/]+)\/members\/([^/]+)$/, async (m) => {
+  const st = await dmReady();
+  const ch = groupChannel(st, decodeURIComponent(m[1]));
+  if (!ch) throw httpError(404, "That group doesn't exist any more.");
+  const user = ctxOf(st).ocname(decodeURIComponent(m[2]));
+  const leaving = st.me && user.toLowerCase() === st.me.username.toLowerCase();
+  await st.conn
+    .request(leaving ? "user_leave" : "channel_kick", leaving ? { channel: ch.name } : { channel: ch.name, user }, {
+      expect: ["success", leaving ? "user_leave" : "channel_kick", "channels_get"],
+    })
+    .catch((e) => {
+      throw ocError(e);
+    });
+  return { ok: true };
+});
+
+route(["PATCH", "DELETE"], /^\/groups\/([^/]+)$/, async (m, body, url, method) => {
+  const st = await dmReady();
+  const ch = groupChannel(st, decodeURIComponent(m[1]));
+  if (!ch) throw httpError(404, "That group doesn't exist any more.");
+  const req =
+    method === "DELETE"
+      ? st.conn.request("channel_delete", { channel: ch.name }, { expect: ["success", "channel_delete", "channels_get"] })
+      : st.conn.request(
+          "channel_update",
+          { channel: ch.name, updates: { name: groupToken(body.name) } },
+          { expect: ["success", "channel_update", "channels_get"] },
+        );
+  await req.catch((e) => {
+    throw ocError(e);
+  });
+  return { ok: true };
+});
+
+// People to start a DM with: members of your servers, plus an exact Rotur
+// username.
+route("GET", /^\/account\/search$/, async (m, body, url) => {
+  const q = String(url.searchParams.get("q") || "").trim().toLowerCase();
+  if (!q) return { users: [] };
+  const seen = new Map();
+  for (const st of servers.values()) {
+    const ctx = ctxOf(st);
+    for (const u of st.users.values()) {
+      if (u.cracked || String(u.username).startsWith("USR:")) continue;
+      const name = ctx.vname(u.username);
+      if (name.toLowerCase().includes(q) && !seen.has(name.toLowerCase())) {
+        seen.set(name.toLowerCase(), { username: name, pfp_url: avatarFor(st, u, u.username) });
+      }
+    }
+  }
+  if (/^[\w.-]{2,32}$/.test(q) && !seen.has(q)) {
+    const r = await realFetch(`https://api.rotur.dev/profile?name=${encodeURIComponent(q)}`).catch(() => null);
+    const p = r && r.ok ? await r.json().catch(() => null) : null;
+    if (p && p.username) seen.set(q, { username: p.username, pfp_url: roturAvatar(p.username) });
+  }
+  const me = currentMe();
+  return {
+    users: [...seen.values()]
+      .filter((u) => !me || u.username !== me.username)
+      .sort((a, b) => (a.username.toLowerCase().startsWith(q) ? 0 : 1) - (b.username.toLowerCase().startsWith(q) ? 0 : 1))
+      .slice(0, 20),
+  };
+});
+
+async function sendDm(msg) {
+  try {
+    const st = await dmReady();
+    const ch = await ensureDmChannel(st, msg.to);
+    await sendToDmChannel(st, ch, msg, (raw) => hooks.emit({ type: "im_ack", nonce: msg.nonce, message: toIm(st, ch, raw) }));
+  } catch (e) {
+    hooks.emit({ type: "im_error", nonce: msg.nonce, error: e.message || "request_failed" });
+  }
+}
+
+async function sendRoom(msg) {
+  try {
+    const st = await dmReady();
+    const ch = groupChannel(st, msg.room);
+    if (!ch) throw httpError(404, "That group doesn't exist any more.");
+    await sendToDmChannel(st, ch, msg, (raw) => hooks.emit({ type: "roomMessage", ...toGroupMessage(st, ch, raw) }));
+  } catch (e) {
+    hooks.emit({ type: "chat_error", error: e.message || "request_failed", request: "roomMessage" });
+  }
+}
+
+async function sendToDmChannel(st, ch, msg, done) {
+  let content = contentToOC(ctxOf(st), (eid) => emojiIndex.get(eid), msg.message);
+  const attachments = [];
+  for (const a of msg.attachments || []) {
+    if (a.oc_id && a.oc_sid === st.sid) attachments.push(a.oc_raw || { id: a.oc_id });
+    else if (a.url) content = `${content}${content ? "\n" : ""}${a.url}`;
+  }
+  const fields = { channel: ch.name, content };
+  if (attachments.length) fields.attachments = attachments;
+  const replyUuid = msg.reply_to ? uuidOf(String(msg.reply_to).replace(/^(im|g)/, "")) : null;
+  if (replyUuid) fields.reply_to = replyUuid;
+  const proof = await signMessage(st.conn, { content, attachments });
+  const f = await st.conn.request("message_new", { ...fields, ...proof }).catch((e) => {
+    throw ocError(e);
+  });
+  done(f.message);
 }
 
 // ---------------------------------------------------------------- fetch shim
@@ -1513,15 +2056,16 @@ function sendFromVelora(msg) {
       let content = contentToOC(ctx, (eid) => emojiIndex.get(eid), msg.message);
       const attachments = [];
       for (const a of msg.attachments || []) {
-        if (a.oc_id && (!a.oc_sid || a.oc_sid === st.sid)) attachments.push({ id: a.oc_id });
+        // Uploads go back as their full record, which the signature covers.
+        if (a.oc_id && (!a.oc_sid || a.oc_sid === st.sid)) attachments.push(a.oc_raw || { id: a.oc_id });
         else if (a.url) content = `${content}${content ? "\n" : ""}${a.url}`;
       }
       const fields = { channel: name, content };
       if (attachments.length) fields.attachments = attachments;
       const replyUuid = msg.reply_to ? uuidOf(msg.reply_to) : null;
       if (replyUuid) fields.reply_to = replyUuid;
-      st.conn
-        .request("message_new", fields)
+      signMessage(st.conn, { content, attachments })
+        .then((proof) => st.conn.request("message_new", { ...fields, ...proof }))
         .then((f) => {
           hooks.emit({ type: "chat_ack", nonce: msg.nonce, message: vMessage(st, name, f.message) });
         })
@@ -1572,12 +2116,16 @@ function sendFromVelora(msg) {
       return true;
     }
     case "im_send":
-    case "roomMessage":
-      setTimeout(
-        () => hooks.emit({ type: "im_error", nonce: msg.nonce, error: "Direct messages aren't available on OriginChats servers." }),
-        0,
-      );
+      sendDm(msg);
       return true;
+    case "roomMessage":
+      sendRoom(msg);
+      return true;
+    case "dm_typing": {
+      const st = dm;
+      const ch = st && st.conn.state === "ready" ? dmChannelWith(st, msg.to) : null;
+      return ch ? st.conn.send("typing", { channel: ch.name, duration: msg.typing === false ? 0 : 6000 }) : true;
+    }
     case "chat_rtc_join":
     case "voice_call":
       setTimeout(
@@ -1600,6 +2148,8 @@ function start(nextHooks) {
     st.conn.connect();
   }
   emitServersChanged(null);
+  if (roturAccount()) dmState().conn.connect();
+  checkSigningAccess();
 }
 
 // ---------------------------------------------------------------- UI helpers
@@ -1612,7 +2162,7 @@ function emojiSrc(eid, animated) {
 function serverInfo(sid) {
   const st = servers.get(sid);
   if (!st) return null;
-  const hs = st.conn.handshake || {};
+  const hs = st.conn.handshake || st.lastHandshake || {};
   const caps = hs.capabilities || [];
   return {
     sid,
@@ -1625,7 +2175,8 @@ function serverInfo(sid) {
     canLogin: caps.includes("login"),
     canRegister: caps.includes("register"),
     canRotur: caps.includes("auth") && hs.auth_mode !== "cracked-only",
-    hasRotur: !!store.getRoturToken(),
+    hasRotur: !!roturAccount(),
+    connected: !!st.conn.ws,
     access: st.conn.accessNeeded || (hs.access_control ? { mode: hs.access_control.mode } : null),
   };
 }

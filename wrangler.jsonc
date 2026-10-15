@@ -1,0 +1,8 @@
+{
+  // Cloudflare Pages project. Deploy the static build (./scripts/build.sh) with
+  // `wrangler pages deploy`; without a 404.html, Pages serves index.html for
+  // unknown paths, so /chat and /login work.
+  "name": "stickbundle",
+  "compatibility_date": "2026-10-12",
+  "pages_build_output_dir": "out/dist"
+}

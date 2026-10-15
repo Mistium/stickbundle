@@ -4,9 +4,12 @@
 
 import { h } from "../vendor/react.js";
 import { t } from "../vendor/react-jsx-runtime.js";
-import { V, me, se } from "../components/vc/VcEmGrid.jsx";
+import { H, V, Zt, me, ne, se } from "../components/vc/VcEmGrid.jsx";
+import { R } from "../components/onb/OnbOverlay.jsx";
 import { Pr } from "../components/vc/VcSide.jsx";
 import { loginLocal, reconnect, retryAccess, serverInfo } from "./backend.js";
+import { signInWithRotur } from "./rotur.js";
+import { checkSigningAccess, onSigningBlocked } from "./signing.js";
 
 const STATE_TEXT = {
   idle: "Not connected",
@@ -141,6 +144,15 @@ function OCServerGate({ sid }) {
   if (!server || state === "ready") {
     return null;
   }
+  // A server that was already open and briefly lost its connection keeps
+  // its messages on screen, with a bar instead of the full sign-in screen.
+  if (server.oc_loaded && (state === "connecting" || state === "authing" || state === "idle")) {
+    return (
+      <div className="oc-reconnect-bar" role="status">
+        Reconnecting to {server.name}…
+      </div>
+    );
+  }
   const info = serverInfo(sid) || {};
   const waiting = state === "connecting" || state === "authing" || state === "idle";
   const accessReason = info.access && info.access.reason;
@@ -234,14 +246,95 @@ function OCServerGate({ sid }) {
         {state === "needs_login" && !needsAccess && !info.canLogin && (
           <t.Fragment>
             <p className="oc-gate-msg">This server only accepts Rotur accounts.</p>
-            <a className="btn btn-primary" href="/login?next=/chat">
-              Sign in with Rotur
-            </a>
+            {info.hasRotur ? (
+              <button type="button" className="btn btn-primary" onClick={() => reconnect(sid)}>
+                Try again
+              </button>
+            ) : (
+              <a className="btn btn-primary" href="/login?next=/chat">
+                Sign in with Rotur
+              </a>
+            )}
           </t.Fragment>
+        )}
+        {state === "needs_login" && !info.connected && (info.canLogin || needsAccess) && (
+          <button type="button" className="btn btn-surface" onClick={() => reconnect(sid)}>
+            Reconnect
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-export { OCHome, OCServerGate, OCSide };
+// Shown when Rotur won't sign for this sign-in (older sign-ins didn't ask for
+// signing), so messages would otherwise go out unsigned without a word.
+function OCSigningBar() {
+  const [blocked, setBlocked] = h.useState(false);
+  const [busy, setBusy] = h.useState(false);
+  const [hidden, setHidden] = h.useState(false);
+  h.useEffect(() => onSigningBlocked(setBlocked), []);
+  if (!blocked || hidden) {
+    return null;
+  }
+  const fix = async () => {
+    setBusy(true);
+    try {
+      await signInWithRotur();
+      await checkSigningAccess();
+    } catch {}
+    setBusy(false);
+  };
+  return (
+    <div className="oc-signing-bar" role="status">
+      <span>Your messages aren't being signed, so other people see them as unverified.</span>
+      <span className="grow" />
+      <button type="button" className="btn btn-primary btn-sm" onClick={fix} disabled={busy}>
+        {busy ? "Waiting for Rotur…" : "Sign in with Rotur again"}
+      </button>
+      <button type="button" className="btn btn-surface btn-sm" onClick={() => setHidden(true)}>
+        Not now
+      </button>
+    </div>
+  );
+}
+
+// Links from clients.originchats.com (openable.json) and other clients:
+// /chat?server=<host>&invite=<code>&channel=<name>. Adds the server if it's
+// new, then opens it (and the channel, once the server has signed in).
+function openLinkFromQuery() {
+  const q = new URLSearchParams(location.search);
+  const server = (q.get("server") || q.get("serverurl") || "").trim();
+  if (!server) {
+    return false;
+  }
+  const invite = (q.get("invite") || q.get("invite_code") || q.get("code") || "").trim();
+  const channel = (q.get("channel") || "").trim();
+  history.replaceState(null, "", `/chat${location.hash || "#/home"}`);
+  (async () => {
+    try {
+      const target = invite ? `${server.replace(/\/+$/, "")}/${invite}` : server;
+      const r = await R(`/chat/join/${encodeURIComponent(target)}`, { method: "POST" });
+      await Zt();
+      const sid = r.server.sid;
+      me({ kind: "server", sid });
+      if (!channel) {
+        return;
+      }
+      for (let i = 0; i < 60; i++) {
+        const d = se().detail[sid];
+        const ch = d && d.channels.find((c) => c.oc_name === channel || c.name === channel);
+        if (ch && ch.oc_name) {
+          me({ kind: "channel", sid, cid: ch.cid }, { replace: true });
+          return;
+        }
+        await new Promise((res) => setTimeout(res, 250));
+      }
+    } catch (e) {
+      H(ne(e.message));
+    }
+  })();
+  return true;
+}
+
+export { OCHome, OCServerGate, OCSide, OCSigningBar, openLinkFromQuery };
