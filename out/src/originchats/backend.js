@@ -21,7 +21,7 @@ import {
   toVRole,
 } from "./convert.js";
 import { cidFor, eidFor, msgNum, readMarker, sidFor, uuidOf } from "./ids.js";
-import { cachedVerification, isSigned, signMessage, verifyMessage } from "./signing.js";
+import { cachedVerification, checkSigningAccess, isSigned, signMessage, verifyMessage } from "./signing.js";
 import { roturAccount, roturAvatar, roturValidator } from "./rotur.js";
 import * as store from "./storage.js";
 
@@ -149,15 +149,31 @@ function emojiOf(st, id) {
 function vMessage(st, channel, raw) {
   const m = toVMessage(ctxOf(st), lookupEmoji, channel, raw);
   messageIndex.set(m.id, { sid: st.sid, channel, raw });
-  if (isSigned(raw) && !raw.webhook) {
-    const known = cachedVerification(raw);
-    m.signed = known || "pending";
-    if (!known) checkSignature(st, channel, raw, m.id);
+  if (signatureMatters(st, raw)) {
+    if (isSigned(raw)) {
+      const known = cachedVerification(raw);
+      m.signed = known || "pending";
+      if (!known) checkSignature(st, channel, raw, m.id);
+    } else {
+      m.signed = "unsigned";
+    }
   }
   if (m.reply) {
     messageIndex.set(m.reply.id, messageIndex.get(m.reply.id) || { sid: st.sid, channel, raw: null });
   }
   return m;
+}
+
+// Signature marks only mean something for Rotur accounts on servers that
+// take signatures; server accounts, system messages, plain webhooks and
+// slash command replies can't sign.
+function signatureMatters(st, raw) {
+  if (!st.conn.has("message_signatures_v1")) return false;
+  if (!raw.user || raw.user === "originChats" || raw.interaction || raw.ephemeral) return false;
+  if (raw.webhook && !raw.alias) return false;
+  if (String(raw.user).startsWith("USR:")) return false;
+  const u = st.users.get(raw.user);
+  return !(u && u.cracked);
 }
 
 // Verifies a signed message, then redraws it with the result.
@@ -1632,6 +1648,7 @@ function start(nextHooks) {
     st.conn.connect();
   }
   emitServersChanged(null);
+  checkSigningAccess();
 }
 
 // ---------------------------------------------------------------- UI helpers

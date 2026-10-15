@@ -80,6 +80,24 @@ async function sign(build) {
   return { author_id: record.user_id, key_id: record.key_id, signature: bytesToB64url(signature) };
 }
 
+// Set when Rotur refuses to sign (the sign-in lacks signing:private, or it
+// expired); the chat shows a prompt to sign in again.
+let blocked = false;
+const blockedListeners = new Set();
+function onSigningBlocked(fn) {
+  blockedListeners.add(fn);
+  fn(blocked);
+  return () => blockedListeners.delete(fn);
+}
+function setBlocked(v) {
+  if (blocked !== v) {
+    blocked = v;
+    blockedListeners.forEach((fn) => fn(v));
+  }
+}
+const refused = (e) =>
+  !!e && (e.status === 401 || e.status === 403 || e.name === "RoturPermissionError" || /scope|permission/i.test(String(e.message || "")));
+
 // Proof fields for a new message or an edit, or {} when this connection
 // shouldn't (or can't) sign. A failed signature sends the message unsigned.
 async function signMessage(conn, { content, attachments, after = 0 }) {
@@ -91,9 +109,11 @@ async function signMessage(conn, { content, attachments, after = 0 }) {
     const proof = await sign((authorId) =>
       messageContent(authorId, content || "", attachments || [], timestamp, conn.handshake.signing_url),
     );
+    setBlocked(false);
     return { ...proof, timestamp };
   } catch (e) {
     console.warn("[originchats] sending unsigned:", e);
+    if (refused(e)) setBlocked(true);
     return {};
   }
 }
@@ -184,4 +204,25 @@ function cachedVerification(m) {
   return results.has(key) ? "pending" : null;
 }
 
-export { canSign, cachedVerification, isSigned, signMessage, verifyMessage };
+// Checks up front that this sign-in can sign, so the prompt shows before
+// anything goes out unsigned.
+async function checkSigningAccess() {
+  const rotur = roturAccount() ? roturClient() : null;
+  if (!rotur) return;
+  try {
+    if (await hasNativeEd25519()) {
+      // Loads (and caches) the signing key, throwing if Rotur refuses it.
+      await rotur.signing.privateKey();
+    } else {
+      const res = await fetch("https://api.rotur.dev/v2/me/signing-key", {
+        headers: { Authorization: `Bearer ${rotur.token}` },
+      });
+      if (!res.ok) throw Object.assign(new Error("signing key"), { status: res.status });
+    }
+    setBlocked(false);
+  } catch (e) {
+    if (refused(e)) setBlocked(true);
+  }
+}
+
+export { canSign, cachedVerification, checkSigningAccess, isSigned, onSigningBlocked, signMessage, verifyMessage };

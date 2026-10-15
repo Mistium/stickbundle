@@ -7,6 +7,8 @@ import { t } from "../vendor/react-jsx-runtime.js";
 import { V, me, se } from "../components/vc/VcEmGrid.jsx";
 import { Pr } from "../components/vc/VcSide.jsx";
 import { loginLocal, reconnect, retryAccess, serverInfo } from "./backend.js";
+import { signInWithRotur } from "./rotur.js";
+import { checkSigningAccess, onSigningBlocked } from "./signing.js";
 
 const STATE_TEXT = {
   idle: "Not connected",
@@ -244,4 +246,36 @@ function OCServerGate({ sid }) {
   );
 }
 
-export { OCHome, OCServerGate, OCSide };
+// Shown when Rotur won't sign for this sign-in (older sign-ins didn't ask for
+// signing), so messages would otherwise go out unsigned without a word.
+function OCSigningBar() {
+  const [blocked, setBlocked] = h.useState(false);
+  const [busy, setBusy] = h.useState(false);
+  const [hidden, setHidden] = h.useState(false);
+  h.useEffect(() => onSigningBlocked(setBlocked), []);
+  if (!blocked || hidden) {
+    return null;
+  }
+  const fix = async () => {
+    setBusy(true);
+    try {
+      await signInWithRotur();
+      await checkSigningAccess();
+    } catch {}
+    setBusy(false);
+  };
+  return (
+    <div className="oc-signing-bar" role="status">
+      <span>Your messages aren't being signed, so other people see them as unverified.</span>
+      <span className="grow" />
+      <button type="button" className="btn btn-primary btn-sm" onClick={fix} disabled={busy}>
+        {busy ? "Waiting for Rotur…" : "Sign in with Rotur again"}
+      </button>
+      <button type="button" className="btn btn-surface btn-sm" onClick={() => setHidden(true)}>
+        Not now
+      </button>
+    </div>
+  );
+}
+
+export { OCHome, OCServerGate, OCSide, OCSigningBar };
