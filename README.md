@@ -16,17 +16,18 @@ These talk only to OriginChats and Rotur, and work with any UI:
 | File | What it does |
 | --- | --- |
 | `connection.js` | One WebSocket per server: handshake, sign-in (resumed `session`, then Rotur validator, then saved server account), requests matched by `listener`, reconnect with backoff. |
-| `convert.js` | Messages, reactions, attachments, embeds, roles and permissions. Custom emoji `originChats:<emoji>//host/id`, role mentions `@&name`. |
-| `ids.js` | Stable ids for servers, channels, roles, emoji and messages, derived from server URLs, channel names and UUIDs, with lookups back. |
 | `rotur.js` | Rotur sign-in through `rotur-sdk`, profiles, avatars and activities. |
 | `signing.js` | Signs messages and edits with the account's Rotur identity key (`originchats.message.v1` payload, clock synced to the server) and verifies signed messages in the browser, with an `@noble/ed25519` fallback. |
 | `storage.js` | The Rotur key, the server list, session tokens and server-account logins, in localStorage. |
 
-These were written against the old UI and need reworking for a new one:
+These were written for the old UI and are shaped around its data model, so
+they need replacing for a new one:
 
 | File | What it was for |
 | --- | --- |
-| `backend.js` | Answered the old client's REST and socket calls from OriginChats commands. The OriginChats side (DMs from dms.originchats.com, uploads, search, roles, pins) is reusable; the request and event shapes it produces are not. |
+| `backend.js` | Answered the old client's REST and socket calls from OriginChats commands. |
+| `convert.js` | Turned OriginChats messages, reactions, attachments, embeds, roles and permissions into the old client's shapes and permission bits. |
+| `ids.js` | Derived the old client's id formats from server URLs, channel names and UUIDs. |
 | `LoginPage.jsx`, `ui.jsx`, `SigBadge.jsx`, `cosmetics.js` | Sign-in page, home view, per-server sign-in gate, signature shield and avatar overlays. They import the old client's React and components. |
 | `originchats.css` | Styles for the above. |
 
