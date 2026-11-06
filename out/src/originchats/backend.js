@@ -125,6 +125,19 @@ function lookupEmoji(h, id) {
       return emojiOf(st, id);
     }
   }
+  // a token can name the server that hosts the picture (assetServerUrl)
+  for (const st of servers.values()) {
+    for (const key of Object.keys(st.emojis)) {
+      const e = st.emojis[key];
+      if (key !== id || !e || !e.assetServerUrl) {
+        continue;
+      }
+      const base = /^https?:\/\//i.test(e.assetServerUrl) ? e.assetServerUrl : `https://${e.assetServerUrl}`;
+      if (host(base) === h) {
+        return emojiOf(st, key);
+      }
+    }
+  }
   return null;
 }
 
@@ -134,13 +147,22 @@ function emojiOf(st, id) {
     return null;
   }
   const eid = eidFor(st.url, id);
+  const asset = e.assetServerUrl
+    ? /^https?:\/\//i.test(e.assetServerUrl)
+      ? e.assetServerUrl
+      : `https://${e.assetServerUrl}`
+    : null;
+  const base = asset || st.url;
+  // New servers serve a web emoji by id; an asset server keeps its file name.
+  const assetId = asset ? e.fileName || e.id || id : e.id || e.fileName || id;
   const out = {
     eid,
     id: String(id),
     sid: st.sid,
     name: e.name,
     animated: /\.gif$/i.test(e.fileName || ""),
-    url: `${st.url}/emojis/${encodeURIComponent(e.fileName)}`,
+    host: host(base),
+    url: `${base}/emojis/${encodeURIComponent(assetId)}`,
   };
   emojiIndex.set(eid, out);
   return out;
@@ -1351,15 +1373,23 @@ route(["PUT", "DELETE"], /^\/chat\/messages\/(\d+)\/reactions\/(.+)$/, async (m,
   const c = await readyConn(st);
   const key = decodeURIComponent(m[2]);
   let emoji = key;
+  const custom = /^e[0-9a-f]{10}$/.test(key) ? emojiIndex.get(key) : null;
   if (/^e[0-9a-f]{10}$/.test(key)) {
-    const e = emojiIndex.get(key);
-    if (!e) throw httpError(400, "unknown_emoji");
-    emoji = `originChats:<emoji>//${host(e.url)}/${e.id}`;
+    if (!custom) throw httpError(400, "unknown_emoji");
+    emoji = `<emoji:${custom.host || host(custom.url)}/${custom.id}>`;
   }
   if (method === "DELETE") {
-    // Remove with the exact key it was added under (old or new custom form).
+    // Remove with the exact key it was added under (canonical or either old form).
+    const forms = custom
+      ? [
+          `<emoji:${custom.host || host(custom.url)}/${custom.id}>`,
+          `originChats:<emoji>//${custom.host || host(custom.url)}/${custom.id}`,
+          `originChats://${custom.host || host(custom.url)}/emojis/${custom.id}`,
+          key,
+        ]
+      : [key];
     const keys = Object.keys((entry.raw && entry.raw.reactions) || {});
-    const match = keys.find((k) => k === emoji) || keys.find((k) => /^e[0-9a-f]{10}$/.test(key) && k.endsWith(`/${emojiIndex.get(key).id}`));
+    const match = keys.find((k) => forms.includes(k)) || keys.find((k) => custom && k.endsWith(`/${custom.id}`));
     if (match) emoji = match;
   }
   await c.request(method === "PUT" ? "reaction_add" : "reaction_remove", { channel, id: uuid, emoji }).catch((e) => {
@@ -2045,12 +2075,41 @@ async function sendRoom(msg) {
   }
 }
 
+async function attachmentMime(a) {
+  if (a.mime_type) return a.mime_type;
+  if (a.type === "gif") return "image/gif";
+  if (a.type === "image") return "image/png";
+  if (a.type === "video") return "video/mp4";
+  if (a.type === "audio") return "audio/mpeg";
+  return "application/octet-stream";
+}
+
+// Records for files the server already has, and for links (GIFs, external
+// pictures) the official client also sends in `attachments`.
+function attachmentRecord(a) {
+  if (a.oc_id) {
+    return a.oc_raw || { id: a.oc_id };
+  }
+  if (!a.url) {
+    return null;
+  }
+  return {
+    id: a.id || a.oc_id || `ext_${Math.random().toString(36).slice(2, 10)}`,
+    name: a.name || String(a.url).split("/").pop() || "file",
+    mime_type: attachmentMime(a),
+    size: a.size || 0,
+    url: a.url,
+    ...(a.width ? { width: a.width } : {}),
+    ...(a.height ? { height: a.height } : {}),
+  };
+}
+
 async function sendToDmChannel(st, ch, msg, done) {
   let content = contentToOC(ctxOf(st), (eid) => emojiIndex.get(eid), msg.message);
   const attachments = [];
   for (const a of msg.attachments || []) {
-    if (a.oc_id && a.oc_sid === st.sid) attachments.push(a.oc_raw || { id: a.oc_id });
-    else if (a.url) content = `${content}${content ? "\n" : ""}${a.url}`;
+    const rec = attachmentRecord(a);
+    if (rec) attachments.push(rec);
   }
   const fields = { channel: ch.name, content };
   if (attachments.length) fields.attachments = attachments;
@@ -2145,9 +2204,10 @@ function sendFromVelora(msg) {
       let content = contentToOC(ctx, (eid) => emojiIndex.get(eid), msg.message);
       const attachments = [];
       for (const a of msg.attachments || []) {
-        // Uploads go back as their full record, which the signature covers.
-        if (a.oc_id && (!a.oc_sid || a.oc_sid === st.sid)) attachments.push(a.oc_raw || { id: a.oc_id });
-        else if (a.url) content = `${content}${content ? "\n" : ""}${a.url}`;
+        // Uploads go back as their full record, which the signature covers;
+        // GIFs and other links travel as attachment records too.
+        const rec = attachmentRecord(a);
+        if (rec) attachments.push(rec);
       }
       const fields = { channel: name, content };
       if (attachments.length) fields.attachments = attachments;

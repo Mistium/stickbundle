@@ -196,19 +196,129 @@ function avatarFor(st, user, username) {
   return roturAvatar(username);
 }
 
-const CUSTOM_EMOJI_RE = /originChats:<emoji>\/\/([^\s/]+)\/([\w-]+)|originChats:\/\/([^\s/]+)\/emojis\/([\w-]+)/g;
+const CUSTOM_EMOJI_RE =
+  /<emoji:([^/\s<>]+)\/([^\s<>/]+)>|originChats:<emoji>\/\/([^\s/]+)\/([\w-]+)|originChats:\/\/([^\s/]+)\/emojis\/([\w-]+)/g;
+const CUSTOM_STICKER_RE = /<sticker:([^/\s<>]+)\/([^\s<>/]+)>|originChats:<sticker>\/\/([^\s/]+)\/([\w-]+)/g;
+
+// The new links are ordinary web links on originchats.com. Legacy native
+// links still appear in older messages.
+const WEB_LINK_RE = /https?:\/\/(?:originchats\.com|originchats\.mistium\.com)\/(app|invite|message)\/[^\s<>"')\]]+/g;
+const LEGACY_MESSAGE_RE =
+  /originChats:<message>\/\/([^/\s]+)\/([^/\s]+)(?:\/([a-f0-9-]+))?\/([a-f0-9-]+)/g;
+const LEGACY_LINK_RE = /originChats:\/\/([^/\s]+)(?:\/([^/\s]+)(?:\/([a-f0-9-]+))?)?/g;
+
+function sameServer(ctx, server) {
+  try {
+    return new URL(`https://${String(server).replace(/^https?:\/\//, "")}`).host.toLowerCase() === host(ctx.url).toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+// a URL with sentence punctuation left outside the link
+function trimLink(url) {
+  let clean = url;
+  let tail = "";
+  while (clean.length > 1 && ".,;:!?".includes(clean[clean.length - 1])) {
+    tail = clean[clean.length - 1] + tail;
+    clean = clean.slice(0, -1);
+  }
+  return [clean, tail];
+}
+
+function webLinkToText(ctx, raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return raw;
+  }
+  const segments = url.pathname.split("/").filter(Boolean).map((x) => {
+    try {
+      return decodeURIComponent(x);
+    } catch {
+      return x;
+    }
+  });
+  const [kind, server, channel] = segments;
+  if (!kind || !server) {
+    return raw;
+  }
+  if (kind === "message") {
+    if (!sameServer(ctx, server) || !channel) {
+      return raw;
+    }
+    return `#${channel}`;
+  }
+  if (kind === "app") {
+    if (!sameServer(ctx, server) || !channel) {
+      return raw;
+    }
+    return `#${channel}`;
+  }
+  return raw;
+}
+
+function legacyMessageToText(ctx, hostPart, channel, thread, id) {
+  const ch = decodeURIComponent(channel);
+  if (sameServer(ctx, hostPart)) {
+    return `#${ch}`;
+  }
+  return `https://originchats.com/message/${hostPart}/${encodeURIComponent(ch)}${thread ? `/${encodeURIComponent(thread)}` : ""}/${id}`;
+}
+
+function legacyLinkToText(ctx, hostPart, channel, thread) {
+  const h = String(hostPart || "");
+  if (!channel) {
+    return `https://originchats.com/invite/${h}`;
+  }
+  const ch = decodeURIComponent(channel);
+  if (sameServer(ctx, h)) {
+    return `#${ch}`;
+  }
+  return `https://originchats.com/app/${h}/${encodeURIComponent(ch)}${thread ? `/${encodeURIComponent(thread)}` : ""}`;
+}
+
+function emojiRef(value) {
+  let m = /^<emoji:([^/\s<>]+)\/([^\s<>/]+)>$/.exec(value);
+  if (m) {
+    return { host: m[1], id: m[2] };
+  }
+  m = /^originChats:<emoji>\/\/([^\s/]+)\/([\w-]+)$/.exec(value) || /^originChats:\/\/([^\s/]+)\/emojis\/([\w-]+)$/.exec(value);
+  return m ? { host: m[1], id: m[2] } : null;
+}
 
 function contentToV(ctx, emojiLookup, text) {
   let s = String(text || "");
-  s = s.replace(CUSTOM_EMOJI_RE, (m, h1, id1, h2, id2) => {
-    const e = emojiLookup(h1 || h2, id1 || id2);
-    return e ? `<${e.animated ? "a" : ""}:${e.name.slice(0, 32)}:${e.eid}>` : ":emoji:";
+  // <https://…> keeps other clients from unfurling a link; here it is just a link
+  s = s.replace(/<(https?:\/\/[^\s<>]+)>/g, "$1");
+  s = s.replace(CUSTOM_EMOJI_RE, (m, h1, id1, h2, id2, h3, id3) => {
+    const e = emojiLookup(h1 || h2 || h3, id1 || id2 || id3);
+    return e ? `<${e.animated ? "a" : ""}:${e.name.slice(0, 32)}:${e.eid}>` : `:${id1 || id2 || id3}:`;
   });
-  s = s.replace(/originChats:<sticker>\/\/([^\s/]+)\/([\w-]+)/g, (m, h, id) => {
+  s = s.replace(CUSTOM_STICKER_RE, (m, h1, id1, h2, id2) => {
+    const h = h1 || h2;
+    const id = id1 || id2;
     const st = ctx.st.stickers && ctx.st.stickers[id];
-    return st && h === host(ctx.url) ? `\n${ctx.url}/stickers/${st.fileName}\n` : "[sticker]";
+    return st && sameServer(ctx, h) ? `\n${ctx.url}/stickers/${st.fileName}\n` : "[sticker]";
   });
-  s = s.replace(/originChats:<message>\/\/[^\s/]+\/([^\s/]+)(?:\/[^\s/]+)?\/[\w-]+/g, (m, ch) => `#${ch}`);
+  // legacy native links -> the new web links (or a channel mention here)
+  s = s.replace(LEGACY_MESSAGE_RE, (m, h, ch, thread, id) => legacyMessageToText(ctx, h, ch, thread, id));
+  s = s.replace(LEGACY_LINK_RE, (m, h, ch, thread) => legacyLinkToText(ctx, h, ch, thread));
+  // new web links to this server become clickable channel mentions
+  s = s.replace(WEB_LINK_RE, (m, kind, offset, whole) => {
+    const prev = whole[offset - 1];
+    const prev2 = whole[offset - 2];
+    const after = whole[offset + m.length];
+    if (prev2 === "]" && prev === "(") {
+      return m; // already a markdown link: leave its destination alone
+    }
+    if (prev === "<" && after === ">") {
+      return m; // <https://…> stays an autolink
+    }
+    const [clean, tail] = trimLink(m);
+    return webLinkToText(ctx, clean) + tail;
+  });
   // Role mentions are `@&name` on the wire and `<@&rid>` in Velora.
   s = s.replace(/@&([\w-]+)/g, (m, name) => {
     const role = ctx.st.roles && ctx.st.roles[name];
@@ -230,7 +340,7 @@ function contentToOC(ctx, emojiByEid, text) {
   });
   s = s.replace(/<(a?):([A-Za-z0-9_]{1,32}):(e[0-9a-f]{10})>/g, (m, a, name, eid) => {
     const e = emojiByEid(eid);
-    return e ? `originChats:<emoji>//${host(e.url)}/${e.id}` : `:${name}:`;
+    return e ? `<emoji:${e.host || host(e.url)}/${e.id}>` : `:${name}:`;
   });
   s = s.replace(/<@&(r[0-9a-f]{10})>/g, (m, rid) => {
     const role = Object.values(ctx.st.roles || {}).find((r) => ridFor(ctx.url, r.id) === rid);
@@ -240,9 +350,9 @@ function contentToOC(ctx, emojiByEid, text) {
 }
 
 function reactionToV(ctx, emojiLookup, key) {
-  const m = /^originChats:<emoji>\/\/([^\s/]+)\/([\w-]+)$/.exec(key) || /^originChats:\/\/([^\s/]+)\/emojis\/([\w-]+)$/.exec(key);
-  if (m) {
-    const e = emojiLookup(m[1], m[2]);
+  const ref = emojiRef(key);
+  if (ref) {
+    const e = emojiLookup(ref.host, ref.id);
     return e ? `<${e.animated ? "a" : ""}:${e.name.slice(0, 32)}:${e.eid}>` : "❔";
   }
   return key;

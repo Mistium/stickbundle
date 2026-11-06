@@ -97,9 +97,9 @@ function Gifs({ onPick }) {
   }
   return (
     <>
-      <label className="vc-search vc-picker-search"><Search size={15} /><input autoFocus placeholder="Search KLIPY" value={q} onChange={e => setQ(e.target.value)} /><img className="vc-klipy-logo" src="/assets/klipy/powered-white.png" alt="Powered by KLIPY" /></label>
+      <label className="vc-search vc-picker-search"><Search size={15} /><input autoFocus placeholder="Search originchatsGifs" value={q} onChange={e => setQ(e.target.value)} /></label>
       <div className="vc-picker-scroll" onScroll={e => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) loadMore(); }}>
-        {err === 'gifs_not_configured' && <div className="vc-empty-note">GIF search isn't set up yet (it needs a Klipy API key on the server).</div>}
+        {err === 'gifs_not_configured' && <div className="vc-empty-note">GIF search isn't set up yet (it needs an originchatsGifs API key on the server).</div>}
         {err && err !== 'gifs_not_configured' && <div className="vc-empty-note">Couldn't load GIFs right now.</div>}
         {list && !list.length && !err && <div className="vc-empty-note">No GIFs found.</div>}
         <div className="vc-gif-grid">
@@ -113,7 +113,7 @@ function Gifs({ onPick }) {
           ))}
         </div>
         {busy && <div className="vc-loading"><i /><i /><i /></div>}
-        <a className="vc-klipy" href="https://klipy.com" target="_blank" rel="noopener noreferrer"><img src="/assets/klipy/powered-white.png" alt="Powered by KLIPY" /></a>
+        <a className="vc-klipy" href="https://gifs.originchats.com" target="_blank" rel="noopener noreferrer">originchatsGifs</a>
       </div>
     </>
   );
