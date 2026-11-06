@@ -1,9 +1,24 @@
 {
-  "name": "originchats-velora-client",
+  "name": "stickbundle",
   "private": true,
   "type": "module",
+  "description": "An OriginChats client built on Ember's web client.",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "@noble/ed25519": "2",
+    "@noble/ed25519": "^2.3.0",
+    "hash-wasm": "^4.12.0",
+    "lucide-react": "^0.441.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "rotur-sdk": "^3.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
   }
 }

@@ -1,0 +1,2 @@
+/chat /index.html 200
+/chat/* /index.html 200

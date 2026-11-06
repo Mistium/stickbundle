@@ -1,0 +1,334 @@
+/* Ember, softer: one small radius scale and flat, neutral surfaces (no gradients) over the look in chat.css /
+   SettingsDialog.css / ProfilePopout.css. Imported after them, so it overrides shape (radius), surface colours and the loading
+   screen; sizes and layout stay as they were. Delete the import in pages/Chat.jsx to get the old look back. */
+
+html.vc-rounded, html.vc-rounded .vc {
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 10px; --r-xl: 12px;
+  --sh-1: none;
+  --sh-2: 0 6px 16px rgba(0, 0, 0, .35);
+  --sh-3: 0 16px 40px rgba(0, 0, 0, .5);
+  --edge: none;
+  /* flat neutral greys: page, panels (rail, sidebar, members), raised boxes, hover / selected rows */
+  --bg: #080808; --surface: #111111; --surface-2: #151515; --surface-3: #1c1c1c; --border: #222222; --border-2: #2c2c2c;
+  --flat-panel: #111111; --flat-box: #151515; --flat-hover: #1c1c1c; --flat-on: #252525;
+  --box: #151515; --panel: #111111;
+  /* the shared form controls and cards (styles.css) read these */
+  --radius: var(--r-md); --radius-sm: var(--r-sm);
+}
+
+/* ── server rail ── */
+html.vc-rounded .vc-rail-item > button { border-radius: var(--r-lg); background: var(--flat-box); box-shadow: none; transition: border-color .15s, transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .15s, border-radius .18s; }
+html.vc-rounded .vc-rail-item > button:hover { border-radius: var(--r-lg); }
+html.vc-rounded .vc-rail-item.active > button { border-radius: var(--r-lg); box-shadow: none; }
+html.vc-rounded .vc-rail-item > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+html.vc-rounded .vc-pill { border-radius: 0 4px 4px 0; width: 4px; }
+html.vc-rounded .vc-rail-sep { border-radius: 2px; height: 2px; }
+html.vc-rounded .vc-rail-badge { border-radius: 99px; }
+html.vc-rounded .vc-rail-ghost { border-radius: var(--r-lg); }
+html.vc-rounded .vc-srv-ico.lg { border-radius: var(--r-lg); }
+html.vc-rounded .vc-srv-ico.sm { border-radius: var(--r-sm); }
+html.vc-rounded .vc-rail-item.drag-over-top, html.vc-rounded .vc-rail-item.drag-over-bottom { border-radius: var(--r-sm); }
+
+/* ── sidebar: channel / DM / member rows ── */
+html.vc-rounded .vc-ch, html.vc-rounded .vc-dm, html.vc-rounded .vc-home-link, html.vc-rounded .vc-member { border-left-width: 0; border-radius: var(--r-sm); }
+html.vc-rounded .vc-ch-btn { border-radius: var(--r-sm); }
+html.vc-rounded .vc-ch.on, html.vc-rounded .vc-dm.on, html.vc-rounded .vc-me-who.on { background: var(--flat-on); }
+html.vc-rounded .vc-member:hover { border-left-color: transparent; }
+html.vc-rounded .vc-ch.unread::before { border-radius: 0 4px 4px 0; left: -8px; }
+html.vc-rounded .vc-ch-gear, html.vc-rounded .vc-cat-add { border-radius: var(--r-xs); }
+html.vc-rounded .vc-ch-gear:hover { background: rgba(255, 255, 255, .06); }
+html.vc-rounded .vc-count { border-radius: 99px; }
+html.vc-rounded .vc-quick { border-radius: var(--r-sm); }
+html.vc-rounded .vc-side-title { border-radius: 0; }
+html.vc-rounded .vc-me { border-top-color: var(--border); }
+html.vc-rounded .vc-me-who { border-radius: var(--r-md); }
+html.vc-rounded .vc-me-who:hover { background: rgba(255, 255, 255, .05); }
+html.vc-rounded .vc-role, html.vc-rounded .vc-chip, html.vc-rounded .vc-game-pill, html.vc-rounded .vc-app-tag, html.vc-rounded .vc-bridge-tag, html.vc-rounded .vc-role-chip { border-radius: var(--r-sm); }
+html.vc-rounded .vc-more { border-radius: var(--r-sm); }
+html.vc-rounded .vc-conn-note, html.vc-rounded .vc-note, html.vc-rounded .vc-check-card, html.vc-rounded .vc-seg button, html.vc-rounded .vc-mutual-row, html.vc-rounded .vc-list-row, html.vc-rounded .vc-shop-card, html.vc-rounded .vc-active-card, html.vc-rounded .vc-hook { border-radius: var(--r-md); }
+
+/* ── pictures: round avatars, soft status dots ── */
+html.vc-rounded .vc-av, html.vc-rounded .vc-av > img, html.vc-rounded .vc-sys-av, html.vc-rounded .vc-grp-av { border-radius: 50%; }
+html.vc-rounded .vc-card .pe-avatar img, html.vc-rounded .vc-card .vc-av, html.vc-rounded .vc-card .vc-av > img { border-radius: 50%; }
+html.vc-rounded .vc-st, html.vc-rounded .vc-st-sq { border-radius: 50%; }
+html.vc-rounded .vc-msg-av.hook { border-radius: 50%; }
+html.vc-rounded .vc-att, html.vc-rounded .vc-att img, html.vc-rounded .vc-att video, html.vc-rounded .vc-gif-tile, html.vc-rounded .vc-patt, html.vc-rounded .vc-att-video, html.vc-rounded .vc-att-audio, html.vc-rounded .vc-filecard, html.vc-rounded .vc-fwd-row, html.vc-rounded .vc-pin, html.vc-rounded .vc-embed, html.vc-rounded .vc-pre, html.vc-rounded .vc-share-card { border-radius: var(--r-md); }
+html.vc-rounded .vc-att { overflow: hidden; }
+html.vc-rounded .vc-embed { overflow: hidden; }
+html.vc-rounded .vc-embed .vc-embed-media, html.vc-rounded .vc-embed img { border-radius: var(--r-sm); }
+html.vc-rounded .vc-code { border-radius: var(--r-xs); }
+html.vc-rounded .vc-spoiler, html.vc-rounded .vc-mention, html.vc-rounded .vc-stamp { border-radius: 5px; }
+html.vc-rounded .vc-quote { border-radius: 2px; border-left-width: 4px; }
+html.vc-rounded .vc-react { border-radius: var(--r-sm); }
+html.vc-rounded .vc-skel { border-radius: var(--r-sm); }
+
+/* ── header and message list ── */
+html.vc-rounded .vc-head { background: var(--bg); box-shadow: none; }
+html.vc-rounded .vc-ico-btn { border-radius: var(--r-sm); }
+html.vc-rounded .vc-head-search input, html.vc-rounded .vc-head-search { border-radius: var(--r-sm); }
+html.vc-rounded .vc-msg { border-radius: var(--r-md); }
+html.vc-rounded .vc-msg.mention { box-shadow: inset 3px 0 0 var(--st-idle); }
+html.vc-rounded .vc-tools { border-radius: var(--r-md); box-shadow: var(--sh-2); overflow: hidden; }
+html.vc-rounded .vc-tools button { border-radius: 0; }
+html.vc-rounded .vc-tools button:hover { background: rgba(255, 255, 255, .08); }
+html.vc-rounded .vc-unread-bar { border-radius: var(--r-md); }
+html.vc-rounded .vc-new-line span { border-radius: 99px; }
+
+/* ── composer ── */
+html.vc-rounded .vc-composer { border-radius: var(--r-md); background: var(--flat-box); border-color: var(--border); box-shadow: none; }
+html.vc-rounded .vc-composer:focus-within { border-color: var(--border-2); box-shadow: none; }
+html.vc-rounded .vc-composer button, html.vc-rounded .vc-composer .vc-ico-btn { border-radius: var(--r-sm); }
+html.vc-rounded .vc-replybar { border-radius: var(--r-md) var(--r-md) 0 0; background: var(--flat-panel); }
+html.vc-rounded .vc-replybar + .vc-composer { border-top-left-radius: 0; border-top-right-radius: 0; }
+html.vc-rounded .vc-pending-atts .vc-patt { border-radius: var(--r-md); }
+html.vc-rounded .vc-edit .vc-edit-input, html.vc-rounded .vc-fail button, html.vc-rounded .vc-edit-btns button { border-radius: var(--r-sm); }
+
+/* ── menus, popovers, tooltips, toasts ── */
+html.vc-rounded .vc-menu { padding: 6px; border-radius: var(--r-md); box-shadow: var(--sh-3); }
+html.vc-rounded .vc-menu > button, html.vc-rounded .vc-menu > a { border-left-width: 0; border-radius: var(--r-sm); }
+html.vc-rounded .vc-ctx { border-radius: var(--r-md); box-shadow: var(--sh-3); }
+html.vc-rounded .vc-ctx-row > button { border-left-width: 0; border-radius: var(--r-sm); }
+html.vc-rounded .vc-ctx-check { border-radius: 5px; }
+html.vc-rounded .vc-pop, html.vc-rounded .bf-pp-pop { border-radius: var(--r-lg); box-shadow: var(--sh-3); }
+html.vc-rounded .vc-pop > *, html.vc-rounded .bf-pp-pop > .bf-pp-card { border-radius: inherit; }
+html.vc-rounded .bf-pp-card { border-radius: var(--r-lg); overflow: hidden; }
+html.vc-rounded .bf-pp-rows { border-radius: var(--r-md); overflow: hidden; }
+html.vc-rounded .bf-pp-row { border-left-width: 0; }
+html.vc-rounded .bf-pp-flyout { border-radius: var(--r-md); box-shadow: var(--sh-3); }
+html.vc-rounded .bf-pp-flyout > button, html.vc-rounded .bf-pp-flyout > a, html.vc-rounded .bf-pp-fl-acct { border-radius: var(--r-sm); }
+html.vc-rounded .vc-bubble { border-radius: var(--r-md); }
+html.vc-rounded .vc-picker, html.vc-rounded .vc-sb { border-radius: var(--r-lg); box-shadow: var(--sh-3); overflow: hidden; }
+html.vc-rounded .vc-picker-tabs button, html.vc-rounded .vc-picker-bar > button, html.vc-rounded .vc-em-nav button, html.vc-rounded .vc-em, html.vc-rounded .vc-gif-btn, html.vc-rounded .vc-icon-grid > button, html.vc-rounded .vc-icon-up, html.vc-rounded .vc-saved-main { border-radius: var(--r-sm); }
+html.vc-rounded .vc-tooltip { border-radius: var(--r-sm); box-shadow: var(--sh-2); }
+html.vc-rounded .vc-toast { border-radius: var(--r-md); box-shadow: var(--sh-3); }
+html.vc-rounded .vc-notify-banner, html.vc-rounded .vc-upd { border-radius: var(--r-lg); box-shadow: var(--sh-3); }
+html.vc-rounded .vc-notify-banner button, html.vc-rounded .vc-sign-banner button { border-radius: var(--r-sm); }
+html.vc-rounded .vc-sign-banner { border-radius: 0; }
+
+/* ── dialogs and the big cards ── */
+html.vc-rounded .vc-modal-back { backdrop-filter: blur(6px); }
+html.vc-rounded .vc-dialog, html.vc-rounded .vc-big, html.vc-rounded .bf-sd, html.vc-rounded .bf-pg-overlay > .card.bf-pg { border-radius: var(--r-xl); box-shadow: var(--sh-3); }
+html.vc-rounded .vc-big { overflow-y: auto; overflow-x: hidden; }
+html.vc-rounded .vc-big-banner { border-radius: 0; }
+html.vc-rounded .bf-sd { overflow: hidden; }
+html.vc-rounded .bf-sd-search { border-radius: var(--r-md); }
+html.vc-rounded .bf-sd-me, html.vc-rounded .bf-sd-group > button, html.vc-rounded .bf-pe-vis-opt, html.vc-rounded .bf-sr-mode, html.vc-rounded .bf-sr-tile, html.vc-rounded .bf-plan, html.vc-rounded .bf-backup-pick, html.vc-rounded .bf-ss-srv { border-left-width: 1px; border-radius: var(--r-md); }
+html.vc-rounded .bf-sd-group > button { border-left-width: 0; border-radius: var(--r-sm); }
+html.vc-rounded .bf-sd-me { border-left-color: var(--border); }
+html.vc-rounded .bf-sd-me.on, html.vc-rounded .bf-sd-group > button.on { border-left-color: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+html.vc-rounded .bf-sd-x { border-radius: var(--r-sm); }
+html.vc-rounded .bf-sd.m .bf-sd-group > button, html.vc-rounded .bf-sd.m .bf-sd-me { border-radius: var(--r-md); margin-bottom: 6px; }
+html.vc-rounded .vc-tabs.inline button, html.vc-rounded .vc-tabs button { border-radius: var(--r-sm) var(--r-sm) 0 0; }
+html.vc-rounded .vc-tabs.inline button.on { border-radius: var(--r-sm); }
+html.vc-rounded .vc-search, html.vc-rounded .vc-search input { border-radius: var(--r-md); }
+html.vc-rounded .vc-search input { border-radius: 0; }
+html.vc-rounded .vc-dialog .vc-search { overflow: hidden; }
+html.vc-rounded .vc-disc-card, html.vc-rounded .vc-profile-card, html.vc-rounded .vc-invite-card, html.vc-rounded .vc-game-card, html.vc-rounded .vc-stream-card, html.vc-rounded .vc-shop-card { border-radius: var(--r-lg); overflow: hidden; box-shadow: none; }
+html.vc-rounded .vc-stream-card { background: var(--flat-box); }
+html.vc-rounded .vc-disc-banner, html.vc-rounded .vc-invite-banner, html.vc-rounded .vc-profile-banner, html.vc-rounded .vc-game-banner { border-radius: 0; }
+html.vc-rounded .vc-banner-prev, html.vc-rounded .vc-big-av, html.vc-rounded .vc-role-ico-prev { border-radius: var(--r-md); }
+html.vc-rounded .vc-big-av, html.vc-rounded .vc-big-av img { border-radius: 50%; }
+html.vc-rounded .vc-friend, html.vc-rounded .vc-result, html.vc-rounded .vc-mention-row, html.vc-rounded .vc-roles-row, html.vc-rounded .vc-invite-friend, html.vc-rounded .vc-fwd-row { border-radius: var(--r-sm); }
+html.vc-rounded .vc-round { border-radius: 50%; }
+html.vc-rounded .vc-color { border-radius: 50%; }
+html.vc-rounded .vc-dropzone-card { border-radius: var(--r-xl); }
+html.vc-rounded .vc-cperm, html.vc-rounded .vc-type, html.vc-rounded .vc-hook, html.vc-rounded .vc-saved-play { border-radius: var(--r-sm); }
+html.vc-rounded .vc-quota-bar, html.vc-rounded .vc-quota-bar i, html.vc-rounded .vc-upload-track, html.vc-rounded .vc-upload-track span, html.vc-rounded .vc-upd-bar, html.vc-rounded .vc-upd-bar > i, html.vc-rounded .vc-song-track, html.vc-rounded .vc-ctx-meter, html.vc-rounded .vc-ctx-meter i { border-radius: 99px; }
+
+/* ── voice and video ── */
+html.vc-rounded .vc-vpanel { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+html.vc-rounded .vc-vbtn, html.vc-rounded .vc-vbig, html.vc-rounded .vc-incoming-btn, html.vc-rounded .vc-stage-btn { border-radius: var(--r-md); }
+html.vc-rounded .vc-vtile, html.vc-rounded .vc-stage-focus, html.vc-rounded .vc-screen-focus, html.vc-rounded .vc-yt-stage, html.vc-rounded .vc-mp.video { border-radius: var(--r-lg); overflow: hidden; }
+html.vc-rounded .vc-vtile-name { border-radius: var(--r-xs); }
+html.vc-rounded .vc-incoming, html.vc-rounded .vc-dmcall, html.vc-rounded .vc-screen-menu { border-radius: var(--r-lg); }
+
+/* ── form controls inside the chat (the shared .btn / .form-input / .card read --radius above) ── */
+html.vc-rounded.vc-page .btn { border-radius: var(--r-sm); }
+html.vc-rounded.vc-page .form-input, html.vc-rounded.vc-page .form-textarea, html.vc-rounded.vc-page .form-select, html.vc-rounded.vc-page select, html.vc-rounded.vc-page textarea.form-input { border-radius: var(--r-sm); }
+html.vc-rounded.vc-page .card { border-radius: var(--r-lg); overflow: hidden; }
+html.vc-rounded.vc-page .cs-switch, html.vc-rounded.vc-page .cs-switch i, html.vc-rounded .vc-dialog .cs-switch, html.vc-rounded .vc-dialog .cs-switch i { border-radius: 99px; }
+html.vc-rounded.vc-page .cs-seg, html.vc-rounded.vc-page .cs-seg button { border-radius: var(--r-sm); }
+
+/* ── scrollbars ── */
+html.vc-rounded.vc-page ::-webkit-scrollbar-thumb { border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+html.vc-rounded.vc-page ::-webkit-scrollbar { width: 12px; height: 12px; }
+
+/* phones: bottom sheets keep their top corners round and sit flush at the bottom */
+@media (max-width: 760px) {
+  html.vc-rounded [data-sheet] { border-radius: var(--r-xl) var(--r-xl) 0 0 !important; }
+}
+
+/* ── flat surfaces: the gradients in chat.css become solid greys ── */
+html.vc-rounded .vc-rail, html.vc-rounded .vc-me { background: var(--flat-panel); }
+html.vc-rounded .vc-me { background: #161616; }
+html.vc-rounded .vc-side-col, html.vc-rounded .vc-members, html.vc-rounded .vc-dm-side, html.vc-rounded .vc-results { background: var(--flat-panel); }
+html.vc-rounded .vc-main { background: var(--bg); }
+html.vc-rounded .vc-msg:hover { background: var(--flat-hover); }
+html.vc-rounded .vc-msg.editing { background: var(--flat-hover); }
+html.vc-rounded .vc-ch:hover, html.vc-rounded .vc-dm:hover, html.vc-rounded .vc-member:hover, html.vc-rounded .vc-home-link:hover { background: var(--flat-hover); }
+html.vc-rounded .vc-ctx, html.vc-rounded .vc-picker, html.vc-rounded .vc-sb, html.vc-rounded .vc-tools, html.vc-rounded .bf-pp-flyout, html.vc-rounded .vc-upd, html.vc-rounded .vc-notify-banner { background: var(--flat-box); }
+html.vc-rounded .vc-toast { background: #2a1517; }
+html.vc-rounded .vc-vpanel, html.vc-rounded .vc-vbtn { background: var(--flat-box); }
+html.vc-rounded .vc-dialog, html.vc-rounded .bf-sd { background: var(--flat-box); }
+html.vc-rounded .bf-sd-side { background: var(--flat-panel); }
+html.vc-rounded .bf-sd.m .bf-sd-side, html.vc-rounded .bf-sd.m .bf-sd-mhead { background: var(--flat-box); }
+html.vc-rounded .bf-sd-me.on, html.vc-rounded .bf-sd-group > button.on { background: var(--flat-on); box-shadow: none; }
+html.vc-rounded .vc-menu, html.vc-rounded .vc-pop { background: var(--flat-box); }
+html.vc-rounded .bf-pp-card, html.vc-rounded .vc-big { background: #0d0d0d; }
+html.vc-rounded .vc-gate-box { background: var(--flat-panel); }
+html.vc-rounded .vc-rail-item.active > button { background: var(--flat-box); }
+@media (max-width: 760px) { html.vc-rounded .vc-side-col { background: var(--flat-panel); } }
+html.vc-rounded .vc-mentions, html.vc-rounded .vc-pins, html.vc-rounded .vc-shop-card, html.vc-rounded .vc-shop-card.has, html.vc-rounded .vc-dmcall, html.vc-rounded .vc-dmcall.in, html.vc-rounded .vc-incoming, html.vc-rounded .vc-invite-card, html.vc-rounded .vc-crash-box, html.vc-rounded .vc-eminfo, html.vc-rounded .vc-stb-post, html.vc-rounded .vc-share-card, html.vc-rounded .vc-stb-text, html.vc-rounded .vc-addbot-menu { background: var(--flat-box); }
+html.vc-rounded .vc-voiceview, html.vc-rounded .vc-stage.compact { background: var(--flat-panel); }
+html.vc-rounded .vc-big-banner, html.vc-rounded .vc-disc-banner, html.vc-rounded .bf-pp-banner { background: var(--flat-box); }
+html.vc-rounded .vc-toast.ok { background: #12201a; }
+html.vc-rounded [data-sheet]::before { background: var(--flat-box); }
+
+/* ── everything else that has a box or a button: the long tail of panels, cards, chips and controls ── */
+html.vc-rounded .bf-pe-bar-reset,
+html.vc-rounded .bf-pp-copy,
+html.vc-rounded .bf-sr-chip,
+html.vc-rounded .bf-sr-status,
+html.vc-rounded .bf-weeks,
+html.vc-rounded .bf-weeks > button,
+html.vc-rounded .vc-att-save,
+html.vc-rounded .vc-bubble-reply,
+html.vc-rounded .vc-bubble-x,
+html.vc-rounded .vc-big-x,
+html.vc-rounded .vc-card-tools > button,
+html.vc-rounded .vc-chip-btn,
+html.vc-rounded .vc-code-btn,
+html.vc-rounded .vc-game-addr-btn,
+html.vc-rounded .vc-game-badge,
+html.vc-rounded .vc-game-jump,
+html.vc-rounded .vc-game-tag,
+html.vc-rounded .vc-game-tag-code,
+html.vc-rounded .vc-game-textbtn,
+html.vc-rounded .vc-gif-badge,
+html.vc-rounded .vc-pin-jump,
+html.vc-rounded .vc-pre-lang,
+html.vc-rounded .vc-saved-size,
+html.vc-rounded .vc-saved-x,
+html.vc-rounded .vc-sb-play,
+html.vc-rounded .vc-search-scope,
+html.vc-rounded .vc-star,
+html.vc-rounded .vc-stb-more,
+html.vc-rounded .vc-stb-star,
+html.vc-rounded .vc-stb-jump,
+html.vc-rounded .vc-stb-label,
+html.vc-rounded .vc-stb-rank,
+html.vc-rounded .vc-stream-cta,
+html.vc-rounded .vc-stream-live,
+html.vc-rounded .vc-unread-go,
+html.vc-rounded .vc-unread-x,
+html.vc-rounded .vc-patt-spoiler-tag,
+html.vc-rounded .vc-quota-x,
+html.vc-rounded .vc-mv-nav,
+html.vc-rounded .vc-mv-tools > button,
+html.vc-rounded .vc-mv-strip > button,
+html.vc-rounded .vc-mp-btn,
+html.vc-rounded .vc-mp-play,
+html.vc-rounded .vc-mp-big,
+html.vc-rounded .vc-mp-tip,
+html.vc-rounded .vc-mp-menu,
+html.vc-rounded .vc-yt-dl,
+html.vc-rounded .vc-yt-opt,
+html.vc-rounded .vc-yt-play,
+html.vc-rounded .vc-yt-ask,
+html.vc-rounded .vc-ask-link,
+html.vc-rounded .vc-check,
+html.vc-rounded .vc-fwd-ico,
+html.vc-rounded .vc-filecard-ico,
+html.vc-rounded .vc-filecard-dl,
+html.vc-rounded .vc-game-card-btn,
+html.vc-rounded .vc-game-found,
+html.vc-rounded .vc-game-chosen,
+html.vc-rounded .vc-vtile-sound,
+html.vc-rounded .vc-sb-prev,
+html.vc-rounded .vc-shop-dot { border-radius: var(--r-sm); }
+html.vc-rounded .bf-pe-lock,
+html.vc-rounded .bf-pg-use,
+html.vc-rounded .bf-sr-automod,
+html.vc-rounded .bf-sr-health,
+html.vc-rounded .bf-sr-plan,
+html.vc-rounded .bf-sr-quote,
+html.vc-rounded .bf-ss-reg,
+html.vc-rounded .bg-card-main,
+html.vc-rounded .bg-review,
+html.vc-rounded .bg-state,
+html.vc-rounded .bm-api,
+html.vc-rounded .bm-bot,
+html.vc-rounded .bm-token,
+html.vc-rounded .bt-err,
+html.vc-rounded .bt-srv,
+html.vc-rounded .vc-act,
+html.vc-rounded .vc-act-art,
+html.vc-rounded .vc-active,
+html.vc-rounded .vc-balance,
+html.vc-rounded .vc-big-badge,
+html.vc-rounded .vc-br-guild,
+html.vc-rounded .vc-br-list,
+html.vc-rounded .vc-br-note,
+html.vc-rounded .vc-br-warn,
+html.vc-rounded .vc-br-empty,
+html.vc-rounded .vc-br-extras,
+html.vc-rounded .vc-br-plat,
+html.vc-rounded .vc-br-row,
+html.vc-rounded .vc-callin-row,
+html.vc-rounded .vc-cperms-table,
+html.vc-rounded .vc-crash-box,
+html.vc-rounded .vc-crash-details > pre,
+html.vc-rounded .vc-dropzone,
+html.vc-rounded .vc-emoji-row,
+html.vc-rounded .vc-err,
+html.vc-rounded .vc-file,
+html.vc-rounded .vc-fwd-preview,
+html.vc-rounded .vc-game-claim-hint,
+html.vc-rounded .vc-game-cmd,
+html.vc-rounded .vc-game-explain,
+html.vc-rounded .vc-game-input,
+html.vc-rounded .vc-game-linked,
+html.vc-rounded .vc-game-logo,
+html.vc-rounded .vc-game-offline-note,
+html.vc-rounded .vc-game-player,
+html.vc-rounded .vc-game-step,
+html.vc-rounded .vc-game-steps > li,
+html.vc-rounded .vc-game-strip,
+html.vc-rounded .vc-pay-state,
+html.vc-rounded .vc-perm-list,
+html.vc-rounded .vc-pick,
+html.vc-rounded .vc-picker-drop,
+html.vc-rounded .vc-quota-note,
+html.vc-rounded .vc-react-pop,
+html.vc-rounded .vc-results-tip,
+html.vc-rounded .vc-rpc-warn,
+html.vc-rounded .vc-set,
+html.vc-rounded .vc-share-source,
+html.vc-rounded .vc-shop-row,
+html.vc-rounded .vc-stb-pic,
+html.vc-rounded .vc-sys-link,
+html.vc-rounded .vc-upload-bar,
+html.vc-rounded .vc-start-ico,
+html.vc-rounded .vc-att-loading,
+html.vc-rounded .vc-att-spoiler-cover,
+html.vc-rounded .vc-game-con-head,
+html.vc-rounded .vc-yt-stage,
+html.vc-rounded .vc-yt-ask { border-radius: var(--r-md); }
+html.vc-rounded .vc-start-ico { border-radius: var(--r-lg); }
+html.vc-rounded .vc-hook-av, html.vc-rounded .vc-profile-noav, html.vc-rounded .vc-dmcall-av { border-radius: 50%; }
+html.vc-rounded .vc-vuser-av, html.vc-rounded .vc-vlvl-av { border-radius: 50%; }
+html.vc-rounded .vc-game-console { border-radius: var(--r-md); overflow: hidden; }
+html.vc-rounded .vc-game-bar, html.vc-rounded .vc-game-bar i { border-radius: 99px; }
+html.vc-rounded .cs-note, html.vc-rounded .bf-settings-nav { border-radius: var(--r-md); }
+html.vc-rounded .inline-msg, html.vc-rounded .badge { border-radius: var(--r-sm); }
+html.vc-rounded .vc-me { margin: 0 8px 8px; border: 1px solid var(--border); border-radius: var(--r-md); }
+html.vc-rounded kbd { border-radius: var(--r-xs); }
+html.vc-rounded .pe-banner { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+
+/* phones: the settings dialog fills the whole screen, so it has no corners to round */
+@media (max-width: 700px) {
+  html.vc-rounded .bf-sd { border-radius: 0; box-shadow: none; }
+}
+
+/* "Ember has an app" popup */
+html.vc-rounded .vc-app-promo-logo { border-radius: var(--r-xl); }

@@ -1,0 +1,7 @@
+.vc-react-missing { font-size: 11px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+.vc-react-img { object-fit: contain; }
+/* the top 3 quick reactions at the start of a message's hover tools, then a divider */
+.vc-tools-react { display: flex; }
+.vc-tools-react .vc-react-img { width: 18px; height: 18px; }
+.vc-tools-react > button[aria-pressed="true"] { background: var(--accent-dim, #ffffff12); }
+.vc-tools-sep { align-self: center; width: 1px; height: 18px; margin: 0 3px; background: var(--border-2); }

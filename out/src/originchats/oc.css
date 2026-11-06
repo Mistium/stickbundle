@@ -1,0 +1,72 @@
+/* OriginChats bits that sit around Ember's own screens: the sign-in gate, the
+   per-server sign-in gate, and the add/discover dialogs. */
+
+.oc-gate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, var(--bg, #0e0e10) 82%, transparent);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.oc-login-gate {
+  min-height: 100vh;
+}
+
+.oc-login-gate .vc-gate-box {
+  max-width: 430px;
+  width: 100%;
+}
+
+.oc-login-gate img {
+  display: block;
+  margin: 0 auto 6px;
+}
+
+.oc-login-key {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  text-align: left;
+}
+
+.oc-login-link {
+  display: inline-block;
+  margin-top: 12px;
+  background: none;
+  border: 0;
+  color: var(--dim, #a1a1aa);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.oc-login-link:hover {
+  color: var(--text, #e7e7ea);
+}
+
+/* the per-server gate uses Ember's .vc-gate-box; keep forms tidy */
+.oc-gate-overlay .vc-gate-box form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+
+.oc-gate-overlay .vc-gate-btns {
+  justify-content: center;
+}
+
+.oc-gate-overlay .vc-gate-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted, #71717a);
+  margin-bottom: 4px;
+}

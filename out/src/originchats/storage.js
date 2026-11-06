@@ -116,6 +116,15 @@ function signOutEverywhere() {
   write(PROFILE, null);
 }
 
+// Sign out of the identity but keep the servers the user added: the next
+// sign-in (or a server account) can use them again.
+function signOutIdentity() {
+  write(ROTUR_TOKEN, null);
+  write(SESSIONS, null);
+  write(LOCAL_LOGINS, null);
+  write(PROFILE, null);
+}
+
 export {
   addServer,
   getLocalLogin,
@@ -132,4 +141,5 @@ export {
   setServers,
   setSession,
   signOutEverywhere,
+  signOutIdentity,
 };

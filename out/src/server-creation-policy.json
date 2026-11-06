@@ -1,0 +1,9 @@
+{
+  "creationEnabled": false,
+  "title": "Server creation is temporarily paused",
+  "notice": [
+    "Nookara's server system is being rewritten to decentralize it. When the update is ready, you'll be able to host your own server or have Nookara host it for you.",
+    "When the update launches, all existing servers will move to the Nookara-hosted starter plan. You can upgrade or switch to self-hosting later.",
+    "Ember's source code may also become open source in the future, but this hasn't been decided yet."
+  ]
+}

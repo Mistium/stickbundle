@@ -1,0 +1,67 @@
+/* Own-profile pop-out (bottom-left) + the same card as Settings > Profile's live preview.
+   Square corners like the rest of Ember; colours follow the accent (--accent / --pe-accent). */
+.bf-pp-pop { position: fixed; z-index: 2050; width: 340px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; scrollbar-width: none; box-shadow: 0 24px 60px rgba(0, 0, 0, .65); animation: vc-pop .18s cubic-bezier(.2, .8, .2, 1); transform-origin: bottom left; }
+.bf-pp-pop.out { animation: vc-pop-out .13s ease-in forwards; }
+.bf-pp-pop::-webkit-scrollbar { display: none; }
+
+.bf-pp-card { --pe-accent: var(--accent); position: relative; background: #0b0b0d; border: 1px solid var(--border-2); border-top: 3px solid var(--pe-accent); color: var(--text); }
+.bf-pp-banner { height: 120px; overflow: hidden; background: linear-gradient(135deg, var(--accent-dim), transparent); }
+.bf-pp-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bf-pp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin: -46px 16px 0; position: relative; }
+.bf-pp-av .vc-av { border: 5px solid #0b0b0d; background: #0b0b0d; }
+.bf-pp-av .vc-st { right: -3px; bottom: -3px; border-color: #0b0b0d; --st-cut: #0b0b0d; }
+.bf-pp-badges { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 4px; padding: 5px 7px; background: #151517; border: 1px solid var(--border-2); color: var(--pe-accent); }
+.bf-pp-badges img { width: 18px; height: 18px; object-fit: contain; display: block; }
+.bf-pp-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 16px 16px; }
+.bf-pp-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bf-pp-pronouns { margin-top: 1px; font-size: 12.5px; color: var(--dim, #9a9aa5); overflow-wrap: anywhere; }
+.bf-pp-name { font-size: 20px; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-pp-copy { flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; background: none; border: 0; color: var(--muted); cursor: pointer; }
+.bf-pp-copy:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+.bf-pp-custom { font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+.bf-pp-bio { font-size: 13.5px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }
+.bf-pp-bio a, .bf-pp-custom a { color: var(--pe-accent); }
+.bf-pp-custom img, .bf-pp-bio img { vertical-align: -3px; }
+.bf-pp-link { display: inline-flex; align-items: center; gap: 5px; width: fit-content; font-size: 13px; color: var(--pe-accent); }
+.bf-pp-fact { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; font-size: 13px; }
+.bf-pp-fact b { font-size: 12px; color: var(--text); }
+.bf-pp-fact span { color: var(--dim); }
+
+/* the box of rows */
+.bf-pp-rows { margin-top: 8px; background: #151517; border: 1px solid var(--border-2); }
+.bf-pp-rowwrap { position: relative; }
+.bf-pp-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; background: none; border: 0; border-left: 3px solid transparent; color: #d4d4d8; font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
+.bf-pp-row + .bf-pp-row, .bf-pp-rowwrap + .bf-pp-rowwrap, .bf-pp-rowwrap + .bf-pp-row { border-top: 1px solid var(--border); }
+.bf-pp-row:hover:not(:disabled), .bf-pp-row.on { background: var(--accent-dim); border-left-color: var(--accent); color: #fff; }
+.bf-pp-row:disabled { opacity: .5; cursor: default; }
+.bf-pp-row-l { flex: 1; min-width: 0; }
+.bf-pp-row .vc-st-sq { width: 12px; height: 12px; }
+.bf-pp-row > svg:last-child { color: var(--muted); }
+.bf-pp-edit { width: 100%; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; font-weight: 700; }
+
+/* the status / accounts submenu: flies out to the right of the pop-out */
+.bf-pp-flyout { position: fixed; z-index: 2060; width: 260px; padding: 6px; background: linear-gradient(180deg, #1c1c20, #151517); border: 1px solid var(--border-2); box-shadow: 0 18px 50px rgba(0, 0, 0, .6); animation: vc-ctx-in .13s cubic-bezier(.2, .8, .2, 1); }
+.bf-pp-flyout > button, .bf-pp-flyout > a, .bf-pp-fl-acct { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; background: none; border: 0; border-left: 3px solid transparent; color: #d4d4d8; font: inherit; font-size: 13.5px; text-align: left; text-decoration: none; cursor: pointer; }
+.bf-pp-flyout > button:hover:not(:disabled), .bf-pp-flyout > a:hover { background: var(--accent-dim); border-left-color: var(--accent); color: #fff; }
+.bf-pp-flyout > button.on { color: #fff; }
+.bf-pp-flyout > button:disabled { opacity: .6; cursor: default; }
+.bf-pp-fl-acct { cursor: default; }
+.bf-pp-fl-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bf-pp-fl-txt > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-pp-fl-txt small { color: var(--muted); font-size: 11.5px; }
+.bf-pp-fl-sep { height: 1px; margin: 5px 4px; background: var(--border); }
+.bf-pp-fl-head { padding: 6px 10px 4px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.bf-pp-fl-none { padding: 6px 10px 8px; color: var(--muted); font-size: 12.5px; }
+.bf-pp-flyout-back { display: none; }
+.bf-pp-flyout .vc-st-sq { width: 12px; height: 12px; flex: none; }
+.flip { transform: rotate(180deg); }
+
+/* phones: the submenu opens in place instead (no room beside the pop-out) */
+@media (max-width: 700px) {
+  .bf-pp-flyout { position: static; width: auto; margin: 0 6px 6px; box-shadow: none; }
+  .bf-pp-flyout-back { display: block; }
+  .bf-pp-flyout-back button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+}
+
+/* the preview in Settings > Profile */
+.bf-pp-card.preview { width: 100%; }

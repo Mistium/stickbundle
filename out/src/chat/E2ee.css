@@ -1,0 +1,42 @@
+/* End-to-end encrypted DMs. No rounded corners anywhere. */
+.e2-fields { display: flex; flex-direction: column; gap: 10px; }
+.e2-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.e2-fields input[type="password"], .e2-fields input[type="text"], .e2-fields > input { padding: 8px 10px; border: 1px solid var(--vc-border, #3a3a40); background: var(--vc-bg-input, transparent); color: inherit; font: inherit; border-radius: 0; }
+.e2-fields label.e2-check, .e2-check { flex-direction: row; align-items: center; display: flex; gap: 8px; }
+.e2-kinds { display: inline-flex; border: 1px solid var(--vc-border, #3a3a40); align-self: flex-start; }
+.e2-kinds button { padding: 6px 16px; background: transparent; color: inherit; border: 0; cursor: pointer; font: inherit; border-radius: 0; }
+.e2-kinds button.on { background: var(--accent, var(--primary, #9d8ad1)); color: var(--accent-contrast, #0d0d10); }
+.e2-code { font-family: ui-monospace, Consolas, monospace; font-size: 15px; letter-spacing: 1px; padding: 12px; border: 1px solid var(--vc-border, #3a3a40); text-align: center; overflow-wrap: anywhere; user-select: all; }
+.e2-code.big { font-size: 24px; letter-spacing: 3px; }
+.e2-warn { display: flex; gap: 8px; align-items: flex-start; color: var(--vc-warn, #e0a030); margin: 0; }
+.e2-warn svg { flex: none; margin-top: 2px; }
+.e2-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.e2-links button { background: none; border: 0; padding: 0; color: var(--vc-link, #6aa6ff); cursor: pointer; font: inherit; font-size: 13px; }
+.e2-links button:hover { text-decoration: underline; }
+.e2-panel { display: flex; align-items: center; gap: 14px; padding: 16px; margin: 12px 16px; border: 1px solid var(--vc-border, #3a3a40); }
+.e2-panel svg { flex: none; }
+.e2-panel div { flex: 1; min-width: 0; }
+.e2-panel p { margin: 4px 0 0; font-size: 13px; opacity: .8; }
+.e2-label { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 16px; font: inherit; font-size: 12px; color: var(--vc-text-muted, #a3a3ad); background: none; border: 0; border-bottom: 1px solid var(--vc-border, #3a3a40); text-align: left; }
+button.e2-label { cursor: pointer; }
+button.e2-label:hover { color: inherit; }
+.e2-label.off { color: var(--vc-warn, #e0a030); }
+.e2-settings { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.e2-settings p { display: flex; gap: 8px; align-items: flex-start; margin: 0; }
+.e2-settings p svg { flex: none; margin-top: 3px; }
+.e2-settings h4 { margin: 8px 0 0; font-size: 13px; }
+.e2-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.e2-clients { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.e2-clients li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--vc-border, #3a3a40); }
+.e2-clients li span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.e2-clients small { opacity: .7; }
+.e2-msg-note { display: flex; align-items: center; gap: 6px; font-size: 12px; font-style: italic; color: var(--vc-text-muted, #a3a3ad); }
+.e2-msg-note.bad { color: var(--vc-warn, #e0a030); font-style: normal; }
+.e2-msg-note button { background: none; border: 0; padding: 0; color: var(--vc-link, #6aa6ff); cursor: pointer; font: inherit; }
+.e2-keychange { display: flex; align-items: center; gap: 8px; padding: 6px 16px; font-size: 13px; color: var(--vc-warn, #e0a030); border-bottom: 1px solid var(--vc-border, #3a3a40); }
+.e2-keychange button { background: none; border: 0; padding: 0; color: var(--vc-link, #6aa6ff); cursor: pointer; font: inherit; }
+.e2-file { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--vc-border, #3a3a40); max-width: 420px; }
+.e2-file span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.e2-err { color: var(--vc-danger, #e5484d); margin: 0; font-size: 13px; }
+.e2-label { border-bottom: 0; border-top: 1px solid var(--vc-border, #3a3a40); }
+.vc-msg.pending:has(.e2-msg-note) { opacity: 1; }

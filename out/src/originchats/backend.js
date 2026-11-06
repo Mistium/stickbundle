@@ -886,9 +886,11 @@ const DEFAULT_SETTINGS = {
   compact: false,
   animations: true,
   link_images: true,
+  link_previews: true,
   developer_mode: false,
   allow_vc_calls: false,
-  yt_mode: "youtube",
+  yt_mode: "ask",
+  dm_upload_dest: "ask",
   radio_enabled: false,
   radio_url: "",
   strip_tracking: null,
@@ -958,9 +960,12 @@ route("GET", /^\/account\/me$/, async () => {
   // until the first one tells us who we are.
   const me = currentMe() || { id: "you", username: "you", pfp: null };
   return {
-    sys: { id: me.id, username: me.username, rank: null, created: null, badges: [], onboarded: true },
-    profile: { pfp: me.pfp, color: null, banner: profile() && profile().banner, bio: (profile() && profile().bio) || "" },
+    // Ember's current shape
+    account: { id: me.id, username: me.username, rank: null, created: null, badges: [], onboarded: true, pro: false },
+    profile: { pfp: me.pfp, color: null, banner: (profile() && profile().banner) || null, bio: (profile() && profile().bio) || "" },
     bio_limit: 0,
+    // kept for older copies of the client
+    sys: { id: me.id, username: me.username, rank: null, created: null, badges: [], onboarded: true },
   };
 });
 
@@ -1426,13 +1431,17 @@ route(["PATCH", "DELETE"], /^\/chat\/servers\/([^/]+)\/emojis\/(e[0-9a-f]{10})$/
   return { ok: true };
 });
 
-route("POST", /^\/chat\/media\/(external|upload)$/, async (m, body) => {
+route("POST", /^\/chat\/media\/(external|upload|temp|account)$/, async (m, body) => {
   const file = body instanceof FormData ? body.get("file") : null;
   const st = viewServer();
   if (!file) throw httpError(400, "No file");
   if (!st) throw httpError(400, "Open a server channel to upload files.");
   return { attachment: await uploadTo(st, file) };
 });
+
+route("GET", /^\/chat\/media\/limits$/, () => ({ server_mb: 95, saved_mb: 60 }));
+route("POST", /^\/chat\/media\/save$/, () => ({ status: "saved" }));
+route("POST", /^\/chat\/media\/gif$/, (m, body) => ({ id: String(body.url || "") }));
 
 route("POST", /^\/chat\/presence\/custom$/, (m, body) => {
   const text = String((body && body.text) || "").slice(0, 100);
@@ -1594,6 +1603,11 @@ const EMPTY = [
   [/^\/friends$/, { friends: [] }],
   [/^\/friends\/requests$/, { incoming: [], outgoing: [], requests: [] }],
   [/^\/friends\/status\/.+$/, { status: "none" }],
+  [/^\/account\/notifications\/unread-count$/, { unread: 0 }],
+  [/^\/account\/notifications$/, { notifications: [], unread: 0, next_cursor: null }],
+  [/^\/account\/notices$/, { notices: [] }],
+  [/^\/account\/blocks$/, { blocks: [] }],
+  [/^\/account\/dm-requests$/, { requests: [], settings: { who: "everyone" } }],
   [/^\/chat\/modmail$/, { messages: [], unread: 0 }],
   [/^\/chat\/modmail\/staff$/, { staff: false }],
   [/^\/chat\/media$/, { items: [] }],
@@ -2092,6 +2106,32 @@ const pendingNonces = new Map();
 function sendFromVelora(msg) {
   const t = msg && msg.type;
   switch (t) {
+    // Ember's home socket handshake. The in-page bridge has no Velora account
+    // behind it: the OriginChats identity is already established, so accept it
+    // and send the server list.
+    case "auth_token": {
+      if (!store.getProfile()) {
+        setTimeout(() => hooks.emit({ type: "auth_error", error: "invalid_token" }), 0);
+        return true;
+      }
+      setTimeout(() => {
+        hooks.emit({ type: "auth_success" });
+        hooks.emit({ type: "oc_servers", servers: listServers() });
+      }, 0);
+      return true;
+    }
+    case "chat_hello": {
+      const me = currentMe();
+      setTimeout(
+        () =>
+          hooks.emit({
+            type: "chat_ready",
+            you: { username: (me && me.username) || "you", presence: { status: "online" } },
+          }),
+        0,
+      );
+      return true;
+    }
     case "chat_send": {
       let ch;
       try {

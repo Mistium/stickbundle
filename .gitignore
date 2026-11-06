@@ -7,3 +7,6 @@ node_modules/
 !.dev.vars.example
 .env*
 !.env.example
+
+# build output (Cloudflare Pages builds this)
+out/dist/

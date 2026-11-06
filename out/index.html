@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" class="vl-app">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OriginChats</title>
+    <meta name="description" content="An OriginChats client. Add servers by address, then chat in their channels with a Rotur account or the server's own account." />
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
+    <link rel="alternate icon" href="/assets/icon.png" />
+    <script>
+      // Ember in a browser (/chat) keeps its own sign-in (bonfire_token) and never reads the host website's session (velora_token).
+      // The desktop / Android apps are exempt (it is their token).
+      (function () {
+        var get = Storage.prototype.getItem;
+        Storage.prototype.getItem = function (k) { return k === 'velora_token' && /^\/chat(\/|$)/.test(location.pathname) && !window.bonfireDesktop && !window.bonfireMobile && !/\bBonfireAndroid\//.test(navigator.userAgent) ? null : get.call(this, k); };
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Ember's loading screen shows straight away (the app's CSS is already in; React swaps in the same markup once the scripts are
+      // loaded). --boot-t puts both on the same point of one clock so the animation doesn't restart at the hand-over.
+      (function () {
+        var t = -(Math.round(performance.now()) % 2600);
+        try { if (localStorage.getItem('bf_design') === 'rounded') document.documentElement.classList.add('vc-rounded'); } catch (e) { /* square */ }
+        document.getElementById('root').innerHTML = '<div class="vc-boot" role="status" aria-label="Loading Ember"><div class="vc-boot-in"><img class="vc-boot-logo" src="/assets/bonfire/logo-photo-256.jpg?v=2" alt="" width="112" height="112" draggable="false" style="--boot-t:' + t + 'ms"><span class="vc-boot-name">Ember</span></div></div>';
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

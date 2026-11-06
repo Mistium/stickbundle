@@ -1,0 +1,24 @@
+.bf-rock-egg {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.bf-rock-egg img {
+  display: block;
+  max-width: min(434px, 80vw);
+  max-height: min(434px, 70vh);
+  width: auto;
+  height: auto;
+  opacity: 0;
+  transition: none;
+}
+.bf-rock-egg.shown img {
+  opacity: 1;
+}
+.bf-rock-egg.fading img {
+  opacity: 0;
+  transition: opacity .3s linear;
+}
