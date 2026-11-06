@@ -1,9 +1,11 @@
 # stickbundle
 
 An [OriginChats](https://docs.originchats.com) client built on
-[Ember's web client](https://github.com/Ikelene/ember-client). Ember's React
-UI, store and message components are used as-is; this repository adds a
-browser-side bridge that makes OriginChats servers look like Ember's backend.
+[Ember's web client](https://github.com/Ikelene/ember-client). It is published
+as a fork at [Mistium/stickbundle](https://github.com/Mistium/stickbundle).
+Ember's React UI, store and message components are used as-is; this repository
+adds a browser-side bridge that makes OriginChats servers look like Ember's
+backend.
 
 ## How it works
 

@@ -27,7 +27,7 @@ export default defineConfig({
     __ORIGINCHATS__: 'true',
     __ROTUR_APP_ID__: JSON.stringify(process.env.ROTUR_APP_ID || ''),
     __EMBER_COMMIT__: JSON.stringify(commit),
-    __EMBER_REPO__: JSON.stringify(process.env.STICKBUNDLE_REPO || 'Ikelene/ember-client'),
+    __EMBER_REPO__: JSON.stringify(process.env.STICKBUNDLE_REPO || 'Mistium/stickbundle'),
   },
   build: { outDir: 'dist', emptyOutDir: true },
 })
